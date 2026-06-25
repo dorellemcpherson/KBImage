@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>KBImage</title>
+    <!-- CSS is inlined here (not an external <link>) because this UXP/UDT
+         load serves the entry HTML live but does NOT reliably refresh linked
+         sub-resources (the external styles.css never applied across reloads,
+         while inline styles always render). Keeping the stylesheet inline
+         guarantees it loads with the panel. Edit styles here. -->
+    <style>
+:root {
+  /* ---- Mockup palette (kbanana-mockup-v2.html) ---- */
+  --ground:       #0E0E10;   /* panel background */
+  --card:         #18181B;
+  --card-2:       #1F1F23;
+  --hairline:     #2A2A2F;
+  --hairline-2:   #34343A;
+  --hairline-3:   #48484f;
+
+  --text:         #F4F4F5;
+  --text-dim:     #A1A1A6;
+  --text-faint:   #6B6B71;
+
+  --mustard:      #FEDB5B;
+  --mustard-2:    #FFF15C;   /* gradient top */
+  --mustard-deep: #E9C23F;   /* gradient bottom */
+  --ink:          #1A1505;   /* text on mustard */
+
+  --info:         #6B88EF;   /* connected dot, links, focus */
+  --alert:        #EB5757;   /* errors, not-connected dot */
+
+  /* ---- Radii (fixed px; no % on pills — % makes ellipses) ---- */
+  --r-pill:  15px;   /* .pill (30px tall) → round ends, flat sides */
+  --r-input: 12px;
+  --r-hero:  23px;   /* full-pill generate button (~46px tall) */
+  --r-btn:   17px;   /* Save / Test buttons */
+  --r-sm:    8px;
+
+  --gap: 12px;
+  --pad: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: "Segoe UI", -apple-system, "Adobe Clean", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+body {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ===== TOPBAR — brand mark + tab row (Settings is the 5th tab) ===== */
+.topbar {
+  display: flex;
+  align-items: center;
+  padding: 12px var(--pad) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.topbar > * + * { margin-left: 10px; }   /* replaces flex gap (UXP ignores gap) */
+
+.brand {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  display: block;
+  flex: 0 0 auto;
+  object-fit: cover;
+  box-shadow: 0 2px 10px rgba(254, 219, 91, .22);
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.tabs > * + * { margin-left: 2px; }
+
+.tab {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  padding: 9px 4px 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;   /* underline track */
+  margin-bottom: -1px;                     /* overlap the topbar hairline */
+  transition: color 0.14s, border-color 0.14s;
+}
+.tab:hover { color: var(--text-dim); }
+.tab.active {
+  color: var(--mustard);
+  font-weight: 600;
+  border-bottom-color: var(--mustard);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Header gear → opens Settings (v0.08.1 step 2). ~30px outline,
+   --text-dim → --mustard on hover; mustard outline when active. */
+.gear {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+.gear:hover { color: var(--mustard); border-color: var(--hairline-3); }
+.gear.active { color: var(--mustard); border-color: var(--mustard); }
+.gear:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+/* ===== VIEWS (per-tab content area) ===== */
+.view {
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+}
+.view > * + * { margin-top: var(--gap); }
+
+.hidden { display: none !important; }
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.row > * + * { margin-left: var(--gap); }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.field > * + * { margin-top: 6px; }
+
+.field-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.section-subtitle { margin-bottom: 2px; }
+
+.hint-small { font-size: 10.5px; color: var(--text-faint); line-height: 1.5; }
+.hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Legacy two-area Edit layout (kept in case markup uses it). */
+.edit-area { display: flex; flex-direction: column; }
+.edit-area > * + * { margin-top: 6px; }
+.edit-area + .edit-area {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* ===== INPUTS — near-black field, hairline border, blue focus ===== */
+.input,
+.textarea {
+  width: 100%;
+  background: #000;
+  color: #fff;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-input);
+  padding: 11px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+  caret-color: #fff;
+  transition: border-color 0.12s;
+}
+.input::placeholder,
+.textarea::placeholder { color: var(--text-faint); }
+.input:hover,
+.textarea:hover { border-color: var(--hairline-3); }
+.input:focus,
+.textarea:focus { border-color: var(--info); }
+
+.textarea {
+  resize: vertical;
+  min-height: 78px;
+  max-height: 200px;
+  /* All-black instruction box (v0.08.1 step 1). appearance:none kills the
+     native textarea chrome (grey inset border + inner background); the box
+     keeps a single clean 1px outer outline. */
+  background: #000;
+  border: 1px solid var(--hairline-2);
+  box-shadow: none;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* ===== PILLS — flat-sided, round ends. Selected = mustard gradient ===== */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+}
+.pills .pill { margin: 0 6px 6px 0; }    /* replaces flex gap; wraps cleanly */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 15px;
+  min-width: 44px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.14s, color 0.14s, border-color 0.14s, box-shadow 0.14s;
+}
+.pill:hover {
+  border-color: var(--hairline-3);
+  color: var(--text);
+}
+.pill.selected {
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  border-color: transparent;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 8px rgba(254, 219, 91, .22);
+}
+.pill.selected:hover {
+  background: linear-gradient(180deg, #FFF370, #EFC94B);
+}
+.pill:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+/* ===== BUTTONS (plain divs styled as buttons) ===== */
+.btn-generate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 46px;
+  border-radius: var(--r-hero);
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14.5px;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 4px 16px rgba(254, 219, 91, .28);
+  transition: box-shadow 0.12s, opacity 0.12s;
+}
+.btn-generate:hover:not(.disabled) { box-shadow: 0 6px 20px rgba(254, 219, 91, .36); }
+.btn-generate.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--r-btn);
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow 0.12s;
+}
+.btn-primary:hover { box-shadow: 0 2px 12px rgba(254, 219, 91, .3); }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 16px;
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  color: var(--text);
+  border-radius: var(--r-btn);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, .04);
+  border-color: var(--hairline-3);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 11px;
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  color: var(--text-faint);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.btn-ghost:hover:not(.disabled) {
+  background: rgba(255, 255, 255, .04);
+  color: var(--text);
+  border-color: var(--hairline-3);
+}
+.btn-ghost.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-generate:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+/* ===== RECALL BAR (foundation — preview / accept / re-run) =====
+   Shown only while a preview is pending. UXP-safe: normal flow, no
+   flex gap (margins for spacing), no position:fixed. */
+.recall-bar {
+  margin-top: 10px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-btn);
+}
+.recall-label {
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+  margin-bottom: 9px;
+}
+.recall-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.recall-actions .btn-primary { margin-right: 8px; }
+
+/* ===== REFERENCE IMAGES ===== */
+.ref-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ref-row > * { margin: 0 6px 6px 0; }
+.ref-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+}
+.ref-thumbs .ref-thumb { margin: 0 6px 6px 0; }
+.ref-thumb {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #5b5b62, #2c2c31);
+  border: 1px solid var(--hairline-2);
+}
+.ref-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ref-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;          /* round badge — explicitly NOT a pill */
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid var(--hairline-2);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ref-delete:hover { background: var(--alert); border-color: var(--alert); }
+
+/* ===== KEY ROW (Settings) ===== */
+.key-row {
+  display: flex;
+  align-items: stretch;
+}
+.key-row > * + * { margin-left: 6px; }
+.key-row .input { flex: 1; }
+
+/* ===== STATUS + CONNECTION ===== */
+.status {
+  font-size: 12px;
+  min-height: 16px;
+  line-height: 1.4;
+}
+.status.muted { color: var(--text-faint); }
+.status.ok    { color: var(--info); }
+.status.bad   { color: var(--alert); }
+.status.busy  { color: var(--mustard); }
+
+.conn {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.conn > * + * { margin-left: 6px; }
+.conn-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;          /* dots ARE round — legit 50% */
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.dot-unknown { background: var(--text-faint); }
+.dot-ok      { background: var(--info); box-shadow: 0 0 8px rgba(107, 136, 239, .7); }
+.dot-bad     { background: var(--alert); }
+.dot-busy    { background: var(--mustard); animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* ===== LINK + CODE ===== */
+.link {
+  color: var(--info);
+  text-decoration: none;
+  font-size: 11px;
+  align-self: flex-start;
+}
+.link:hover { text-decoration: underline; }
+
+code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--card-2);
+  color: var(--text-dim);
+  border-radius: 4px;
+}
+
+/* ===== COST METER (v0.09) — real USD, never credits ===== */
+:root { --money: #3FB950; }   /* distinct money green, separate from mustard */
+
+/* Session total bar — below the tab row, right-aligned, always visible. */
+.cost-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px var(--pad);
+  border-bottom: 1px solid var(--hairline);
+}
+.cost-bar > * + * { margin-left: 10px; }
+.cost-since { font-size: 10.5px; color: var(--text-faint); }
+.cost-total {
+  font-size: 13px; font-weight: 700;
+  color: var(--money);
+}
+.cost-total.over { color: var(--alert); }   /* crossed the spend threshold */
+.cost-reset {
+  font-size: 10.5px; color: var(--text-faint);
+  cursor: pointer; user-select: none;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.cost-reset:hover { color: var(--text-dim); text-decoration: underline; }
+
+/* Per-action estimate line (near Generate / Apply Edit / Upscale). */
+.cost-estimate {
+  font-size: 11.5px; color: var(--text-faint);
+  text-align: center; line-height: 1.4; min-height: 14px;
+}
+
+/* Editable rates table (Settings). */
+.cost-rates { display: flex; flex-direction: column; }
+.cost-rates > * + * { margin-top: 10px; }
+.rate-group { display: flex; flex-direction: column; }
+.rate-name {
+  font-size: 10.5px; color: var(--text-dim); font-weight: 600;
+  margin-bottom: 5px;
+}
+.rate-cells { display: flex; flex-wrap: wrap; }
+.rate-cell { display: flex; flex-direction: column; margin: 0 8px 6px 0; }
+.rate-cap {
+  font-size: 9.5px; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.4px;
+  margin-bottom: 2px;
+}
+.rate-input {
+  width: 62px; height: 28px;
+  padding: 0 8px; font-size: 12px;
+  border-radius: var(--r-sm);
+}
+
+/* ===== SHARED FORM (Generate / Select / Edit / Compose) ===== */
+.shared-form {
+  padding: 14px var(--pad) var(--pad);
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--hairline);
+  margin-top: 4px;
+}
+.shared-form > * + * { margin-top: var(--gap); }
+
+/* ===== UPSCALE TAB — finishing action (v0.08.1 step 3) ===== */
+/* Full-width outline-mustard button — finishing, visually distinct from the
+   mustard-filled Generate hero. (Moved here from the old bottom finishing-bar.) */
+.btn-upscale {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 46px;
+  border-radius: var(--r-hero);
+  background: transparent;
+  border: 1px solid var(--mustard);
+  color: var(--mustard);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.14s;
+}
+.btn-upscale:hover:not(.disabled) { background: rgba(254, 219, 91, .08); }
+.btn-upscale.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.btn-upscale:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <!-- =============== HEADER (brand + 4 tabs) =============== -->
+    <header class="topbar">
+      <img class="brand" src="icons/Icon-52@4.png" alt="KBImage" />
+      <div class="tabs" role="tablist">
+        <div id="tab-generate" class="tab"        role="tab" tabindex="0" data-view="generate">Generate</div>
+        <div id="tab-select"   class="tab"        role="tab" tabindex="0" data-view="select">Select</div>
+        <div id="tab-edit"     class="tab"        role="tab" tabindex="0" data-view="edit">Edit</div>
+        <div id="tab-compose"  class="tab"        role="tab" tabindex="0" data-view="compose">Compose</div>
+        <div id="tab-upscale"  class="tab"        role="tab" tabindex="0" data-view="upscale">Upscale</div>
+      </div>
+      <!-- v0.08.1 step 2 — Settings moved out of the tab row into this header
+           gear. Reuses data-view="settings" → existing showViewByClass swap. -->
+      <div id="gear-btn" class="gear" role="button" tabindex="0" data-view="settings" title="Settings" aria-label="Settings">&#9881;</div>
+    </header>
+
+    <!-- =============== SESSION COST BAR (v0.09) =============== -->
+    <!-- Always-visible, right-aligned USD tally of real spend this session.
+         Green normally; flips alert-red when it crosses the warning threshold.
+         Real dollars — never points/credits. -->
+    <div id="cost-bar" class="cost-bar">
+      <span id="session-reset" class="cost-reset" role="button" tabindex="0" data-action="reset-session" title="Reset session total">Reset</span>
+      <span id="session-since" class="cost-since">since —</span>
+      <span id="session-total" class="cost-total">$0.00</span>
+    </div>
+
+    <!-- =============== TAB CONTENT AREA =============== -->
+    <!-- One of these is visible per tab. Generate/Select/Edit then show the
+         shared form below; Settings has its own form and hides the shared. -->
+
+    <!-- GENERATE — text prompt → new image. Tab body is intentionally
+         minimal; the prompt textarea lives in the shared form below. -->
+    <section id="view-generate" class="view hidden">
+      <div class="hint-small">Type a prompt below to generate a brand-new image.</div>
+    </section>
+
+    <!-- SELECT — selection-based edits. -->
+    <section id="view-select" class="view hidden">
+      <span class="section-title">Selection Edits</span>
+      <div class="hint-small section-subtitle">
+        Make a selection in the document, then pick an edit. The result is
+        masked to the selection — original layer preserved.
+      </div>
+      <div id="pills-select-type" class="pills" data-group="select-type">
+        <div class="pill selected" role="button" tabindex="0" data-value="remove">Remove</div>
+        <div class="pill"          role="button" tabindex="0" data-value="replace">Replace</div>
+        <div class="pill"          role="button" tabindex="0" data-value="add">Add</div>
+        <div class="pill"          role="button" tabindex="0" data-value="fill">Generative Fill</div>
+        <div class="pill"          role="button" tabindex="0" data-value="extend">Extend</div>
+      </div>
+
+      <!-- Extend direction (only shown when Extend is the picked pill). -->
+      <div id="extend-dir-field" class="field hidden">
+        <span class="field-label">Extend direction</span>
+        <div id="pills-extend-dir" class="pills" data-group="extend-dir">
+          <div class="pill selected" role="button" tabindex="0" data-value="all">All Sides</div>
+          <div class="pill"          role="button" tabindex="0" data-value="left">Left</div>
+          <div class="pill"          role="button" tabindex="0" data-value="right">Right</div>
+          <div class="pill"          role="button" tabindex="0" data-value="top">Top</div>
+          <div class="pill"          role="button" tabindex="0" data-value="bottom">Bottom</div>
+        </div>
+        <div class="hint-small">Adds a 25% margin in the chosen direction(s).</div>
+      </div>
+    </section>
+
+    <!-- EDIT — whole-image edits. Compact: 3 pills in one row, one
+         dynamic helper line below that reflects the picked pill. -->
+    <section id="view-edit" class="view hidden">
+      <span class="section-title">Whole Image Edit</span>
+      <div id="pills-edit-type" class="pills" data-group="edit-type">
+        <div class="pill" role="button" tabindex="0" data-value="lighting">Lighting</div>
+        <div class="pill" role="button" tabindex="0" data-value="recolor">Recolor</div>
+        <div class="pill" role="button" tabindex="0" data-value="style">Style</div>
+      </div>
+      <div id="edit-hint" class="hint-small">Pick a starter, or just type your own whole-image instruction.</div>
+    </section>
+
+    <!-- COMPOSE — reference-driven generation + multi-image composition.
+         Three single-select operations. Refs come from the shared form
+         below. Selection (for Reference Inpaint) comes from the active
+         document, native PS tools only. -->
+    <section id="view-compose" class="view hidden">
+      <span class="section-title">Compose</span>
+      <div id="pills-compose-op" class="pills" data-group="compose-op">
+        <div class="pill selected" role="button" tabindex="0" data-value="refgen">Reference Gen</div>
+        <div class="pill"          role="button" tabindex="0" data-value="fuse">Fuse</div>
+        <div class="pill"          role="button" tabindex="0" data-value="refinpaint">Reference Inpaint</div>
+      </div>
+      <div id="compose-hint" class="hint-small">Add a reference image below, then describe the new image to generate.</div>
+    </section>
+
+    <!-- UPSCALE — finishing (Topaz). v0.08.1 step 3: the finishing controls
+         moved out of the bottom bar into this top-level tab. Same element ids
+         / data-groups → existing upscale handler + pill wiring are reused. -->
+    <section id="view-upscale" class="view hidden">
+      <span class="section-title">Finishing — Upscale</span>
+      <div class="hint-small section-subtitle">
+        Enhance resolution with Topaz, then place the result as a new layer.
+        Topaz is a finishing provider — not a generation model.
+      </div>
+      <div class="field">
+        <span class="field-label">Source</span>
+        <div id="pills-upscale-source" class="pills" data-group="upscale-source">
+          <div class="pill selected" role="button" tabindex="0" data-value="composite">Composite</div>
+          <div class="pill"          role="button" tabindex="0" data-value="active-layer">Active Layer</div>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">Factor</span>
+        <div id="pills-upscale-factor" class="pills" data-group="upscale-factor">
+          <div class="pill selected" role="button" tabindex="0" data-value="2">2x</div>
+          <div class="pill"          role="button" tabindex="0" data-value="4">4x</div>
+        </div>
+      </div>
+      <div id="upscale-estimate" class="cost-estimate"></div>
+      <div id="upscale-btn" class="btn-upscale disabled" role="button" tabindex="0" data-action="upscale-topaz">Upscale (Topaz)</div>
+      <div id="upscale-status" class="status muted"></div>
+    </section>
+
+    <!-- SETTINGS — unchanged. -->
+    <section id="view-settings" class="view">
+      <div class="field">
+        <span class="field-label">Google AI Studio API key</span>
+        <div class="key-row">
+          <input
+            id="api-key"
+            class="input"
+            type="password"
+            placeholder="AIza…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="show-key" class="btn-ghost" role="button" tabindex="0" data-action="show-key">Show</div>
+        </div>
+        <a id="get-key-link" href="#" class="link" data-action="open-key-page">How to get your key</a>
+      </div>
+
+      <div class="row">
+        <div id="save-key" class="btn-primary"   role="button" tabindex="0" data-action="save-key">Save</div>
+        <div id="test-key" class="btn-secondary" role="button" tabindex="0" data-action="test-key">Test Connection</div>
+        <div class="conn">
+          <span id="conn-dot" class="dot dot-unknown"></span>
+          <span id="conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.06 — second direct provider. Independent key + status dot. -->
+      <div class="field">
+        <span class="field-label">OpenAI API key</span>
+        <div class="key-row">
+          <input
+            id="openai-api-key"
+            class="input"
+            type="password"
+            placeholder="sk-…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="show-openai-key" class="btn-ghost" role="button" tabindex="0" data-action="show-openai-key">Show</div>
+        </div>
+        <a id="get-openai-key-link" href="#" class="link" data-action="open-openai-key-page">How to get your OpenAI key</a>
+      </div>
+
+      <div class="row">
+        <div id="save-openai-key" class="btn-primary"   role="button" tabindex="0" data-action="save-openai-key">Save</div>
+        <div id="test-openai-key" class="btn-secondary" role="button" tabindex="0" data-action="test-openai-key">Test Connection</div>
+        <div class="conn">
+          <span id="openai-conn-dot" class="dot dot-unknown"></span>
+          <span id="openai-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.07 — finishing provider (Topaz). Independent key + status. -->
+      <div class="field">
+        <span class="field-label">Topaz API key</span>
+        <div class="key-row">
+          <input
+            id="topaz-api-key"
+            class="input"
+            type="password"
+            placeholder="topaz-…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="show-topaz-key" class="btn-ghost" role="button" tabindex="0" data-action="show-topaz-key">Show</div>
+        </div>
+        <a id="get-topaz-key-link" href="#" class="link" data-action="open-topaz-key-page">How to get your Topaz key</a>
+      </div>
+
+      <div class="row">
+        <div id="save-topaz-key" class="btn-primary"   role="button" tabindex="0" data-action="save-topaz-key">Save</div>
+        <div id="test-topaz-key" class="btn-secondary" role="button" tabindex="0" data-action="test-topaz-key">Test Connection</div>
+        <div class="conn">
+          <span id="topaz-conn-dot" class="dot dot-unknown"></span>
+          <span id="topaz-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.09 — spend-warning threshold. Session total turns red past this. -->
+      <div class="field">
+        <span class="field-label">Spend warning ($)</span>
+        <div class="key-row">
+          <input id="warn-threshold" class="input" type="text" inputmode="decimal" placeholder="off" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="hint-small">When this session's total crosses this amount, the tally turns red. Blank = off.</div>
+      </div>
+
+      <!-- v0.09 — editable per-action rates (real USD). Prices change, so the
+           user edits them here; estimates + the session total use these. -->
+      <div class="field">
+        <span class="field-label">Per-action rates (USD)</span>
+        <div id="cost-rates" class="cost-rates"></div>
+        <div id="reset-rates" class="btn-ghost" role="button" tabindex="0" data-action="reset-rates">Reset to defaults</div>
+        <div class="hint-small">
+          Generation models: $ per image at each resolution. Topaz: $ per output
+          megapixel. Real dollars — not credits. Saved on this device.
+        </div>
+      </div>
+
+      <p class="hint">
+        All three keys are stored in UXP <code>secureStorage</code> only. Google calls
+        <code>generativelanguage.googleapis.com</code>, OpenAI calls
+        <code>api.openai.com</code>, Topaz calls <code>api.topazlabs.com</code>.
+        None leave the plugin otherwise. Topaz is a FINISHING provider
+        (upscale / denoise) — not a generation model, so it does not appear
+        in the Model picker.
+      </p>
+    </section>
+
+    <!-- =============== SHARED FORM (Generate / Select / Edit) =============== -->
+    <!-- Prompt + Reference Images + Model + Resolution + Aspect + action
+         button + status + preview. ONE persistent strip — set once, applies
+         to the active tab. Hidden when Settings tab is active. -->
+    <section id="shared-form" class="shared-form hidden">
+      <div class="field">
+        <span id="prompt-label" class="field-label">Prompt</span>
+        <textarea
+          id="prompt"
+          class="textarea"
+          placeholder="Describe the image you want to generate…"
+          rows="4"
+        ></textarea>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Reference Images</span>
+        <div class="ref-row">
+          <div id="ref-add" class="btn-ghost" role="button" tabindex="0" data-action="add-refs">+ Add</div>
+          <div id="ref-thumbs" class="ref-thumbs"></div>
+        </div>
+        <div id="ref-hint" class="hint-small">0/14 references</div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Model</span>
+        <!-- Populated by rebuildModelPills() from the MODELS registry on
+             hydrate. Every provider's models appear here automatically —
+             no hardcoded entries. -->
+        <div id="pills-model" class="pills" data-group="model"></div>
+      </div>
+
+      <!-- pills-resolution + pills-aspect populated by JS from the selected
+           model's option set. -->
+      <div class="field">
+        <span class="field-label">Resolution</span>
+        <div id="pills-resolution" class="pills" data-group="resolution"></div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Aspect</span>
+        <div id="pills-aspect" class="pills" data-group="aspect"></div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Quantity (N = N× cost)</span>
+        <div id="pills-quantity" class="pills" data-group="quantity">
+          <div class="pill selected" role="button" tabindex="0" data-value="1">1</div>
+          <div class="pill"          role="button" tabindex="0" data-value="2">2</div>
+          <div class="pill"          role="button" tabindex="0" data-value="3">3</div>
+          <div class="pill"          role="button" tabindex="0" data-value="4">4</div>
+        </div>
+      </div>
+
+      <div id="cost-estimate" class="cost-estimate"></div>
+      <div id="generate-btn" class="btn-generate disabled" role="button" tabindex="0" data-action="generate">Generate</div>
+
+      <!-- FOUNDATION — recall bar. Hidden until a preview is pending. The
+           result layer IS the preview (non-destructive); Accept commits it,
+           Re-run discards it and runs again with the current form params.
+           Nothing commits without an explicit Accept. -->
+      <div id="recall-bar" class="recall-bar hidden">
+        <span id="recall-label" class="recall-label">Preview ready — Accept to keep, Re-run to discard &amp; try again.</span>
+        <div class="recall-actions">
+          <div id="recall-accept" class="btn-primary"   role="button" tabindex="0" data-action="recall-accept">Accept</div>
+          <div id="recall-rerun"  class="btn-secondary" role="button" tabindex="0" data-action="recall-rerun">Re-run</div>
+        </div>
+      </div>
+
+      <div id="generate-status" class="status muted">Save an API key in Settings to enable generation.</div>
+      <!-- v0.08.1 step 3 — finishing/Upscale controls moved to the Upscale tab
+           (see #view-upscale). The bottom finishing-bar is gone. -->
+    </section>
+
+    <!-- Non-module bundled script. All clicks go through a single delegated
+         listener on document.body — see app.js. -->
+    <script src="src/app.js"></script>
+  </body>
+</html>
+</content>

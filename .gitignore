@@ -1,0 +1,12 @@
+# OS / editor cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+
+# Local key/config (keys live in UXP secureStorage, never in source)
+config/keys.json
+
+# Scratch / build artifacts
+*.ccx
+scratch/
