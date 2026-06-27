@@ -111,6 +111,78 @@ body {
   border-radius: 2px;
 }
 
+/* ===== TWO-TIER NAV — top tier (Image now; Print later) ===== */
+.toptabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.toptabs > * + * { margin-left: 4px; }   /* margin, not flex gap */
+.toptab {
+  padding: 8px 12px 9px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.14s, border-color 0.14s;
+}
+.toptab:hover { color: var(--text); }
+.toptab.active {
+  color: var(--mustard);
+  border-bottom-color: var(--mustard);
+}
+.toptab:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; border-radius: 2px; }
+
+/* ===== OPERATOR SUBNAV — icon-only row (second tier) ===== */
+.subnav {
+  display: flex;
+  align-items: stretch;
+  padding: 0 var(--pad);
+  border-bottom: 1px solid var(--hairline);
+}
+/* .opicon carries class "tab" too (JS active-toggle hook); these rules come
+   after .tab so they override its text-row layout. .tab.active still supplies
+   the mustard colour + underline (the existing accent treatment). */
+.opicon {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;            /* tooltip anchor */
+  height: 40px;
+  padding: 0;
+  color: var(--text-faint);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.14s, border-color 0.14s;
+}
+.opicon:hover { color: var(--text-dim); }
+.opicon.active {
+  color: var(--mustard);
+  border-bottom-color: var(--mustard);
+}
+.opicon:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; border-radius: 4px; }
+.opicon-svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;          /* inherits .opicon colour → mustard when active */
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+/* Tooltip = the native `title` attribute on each .opicon (UXP renders it as a
+   small dark tag, host-positioned). The earlier CSS `.op-tip` pill was removed
+   — it dropped below the icon row and overlapped the cost counter. */
+
 /* Header gear → opens Settings (v0.08.1 step 2). ~30px outline,
    --text-dim → --mustard on hover; mustard outline when active. */
 .gear {
@@ -666,20 +738,47 @@ code {
     </style>
   </head>
   <body>
-    <!-- =============== HEADER (brand + 4 tabs) =============== -->
+    <!-- =============== HEADER — TOP TIER (brand + top-level tabs) =========== -->
     <header class="topbar">
       <img class="brand" src="icons/Icon-52@4.png" alt="KBImage" />
-      <div class="tabs" role="tablist">
-        <div id="tab-generate" class="tab"        role="tab" tabindex="0" data-view="generate">Generate</div>
-        <div id="tab-select"   class="tab"        role="tab" tabindex="0" data-view="select">Select</div>
-        <div id="tab-edit"     class="tab"        role="tab" tabindex="0" data-view="edit">Edit</div>
-        <div id="tab-compose"  class="tab"        role="tab" tabindex="0" data-view="compose">Compose</div>
-        <div id="tab-upscale"  class="tab"        role="tab" tabindex="0" data-view="upscale">Upscale</div>
+      <!-- Top-level sections. "Image" now; a future "Print" tab drops in here as
+           a sibling <div class="toptab" data-toptab="print">Print</div>, with its
+           own <nav id="subnav-print" class="subnav hidden"> row below — no rework
+           of this structure needed. data-toptab (NOT data-view) so it never
+           triggers a content-pane switch. -->
+      <div class="toptabs" role="tablist">
+        <div class="toptab active" role="tab" tabindex="0" data-toptab="image" aria-selected="true">Image</div>
       </div>
-      <!-- v0.08.1 step 2 — Settings moved out of the tab row into this header
-           gear. Reuses data-view="settings" → existing showViewByClass swap. -->
+      <!-- Settings lives in the header gear. Reuses data-view="settings" →
+           existing showViewByClass swap. -->
       <div id="gear-btn" class="gear" role="button" tabindex="0" data-view="settings" title="Settings" aria-label="Settings">&#9881;</div>
     </header>
+
+    <!-- =============== SECOND TIER — operator icon row (Image) =============== -->
+    <!-- Icon-only buttons. Each keeps its ORIGINAL id + data-view, so a click
+         reuses the exact same tab switch (delegated handler → showViewByClass →
+         onTabChanged): same pane, same active toggle, model/aspect rebuild, and
+         the recall bar all keep working. class "tab" is the JS active-toggle hook;
+         "opicon" styles it as an icon. Tooltip via CSS :hover (+ title fallback).
+         A future Print tier adds a sibling <nav id="subnav-print" class="subnav
+         hidden"> with its own icons. -->
+    <nav class="subnav" id="subnav-image" role="tablist">
+      <div id="tab-generate" class="tab opicon" role="tab" tabindex="0" data-view="generate" title="Generate" aria-label="Generate">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.7 5.3 5.3 1.7-5.3 1.7L12 17.5l-1.7-5.3L5 10.5l5.3-1.7z"/><path d="M18.6 14.4l.65 1.95 1.95.65-1.95.65-.65 1.95-.65-1.95-1.95-.65 1.95-.65z"/></svg>
+      </div>
+      <div id="tab-select" class="tab opicon" role="tab" tabindex="0" data-view="select" title="Select" aria-label="Select">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5" stroke-dasharray="3 2.5"/></svg>
+      </div>
+      <div id="tab-edit" class="tab opicon" role="tab" tabindex="0" data-view="edit" title="Edit" aria-label="Edit">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l.85-3.6L15.3 6.0a1.7 1.7 0 0 1 2.4 0l.3.3a1.7 1.7 0 0 1 0 2.4L7.6 19.15z"/><path d="M14.2 7.1l2.7 2.7"/></svg>
+      </div>
+      <div id="tab-compose" class="tab opicon" role="tab" tabindex="0" data-view="compose" title="Compose" aria-label="Compose">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="11" height="11" rx="1.5"/><rect x="9" y="9" width="11" height="11" rx="1.5"/></svg>
+      </div>
+      <div id="tab-upscale" class="tab opicon" role="tab" tabindex="0" data-view="upscale" title="Upscale" aria-label="Upscale">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-7 7"/><path d="M10 20H4v-6"/><path d="M4 20l7-7"/></svg>
+      </div>
+    </nav>
 
     <!-- =============== SESSION COST BAR (v0.09) =============== -->
     <!-- Always-visible, right-aligned USD tally of real spend this session.

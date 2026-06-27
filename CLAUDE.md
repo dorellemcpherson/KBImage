@@ -10,9 +10,20 @@ Read this entire file before writing or changing any code.
 "Delete not currently available" bug AND the per-document session-scoping fix are
 both done and tested. See "Foundation layers" below.
 
-- **Latest checkpoint (TESTED):** commit on `master`, tag `v0.10-ui-dropdowns-working`
-  — adds the Fit Canvas aspect pill + Model/Quantity dropdowns. Recover with
-  `git checkout v0.10-ui-dropdowns-working`.
+- **Latest checkpoint (TESTED):** commit on `master`, tag `v0.10-topnav-working` —
+  two-tier nav (Image top tab + 5 operator icons) with single native-title tooltips.
+  Recover with `git checkout v0.10-topnav-working`.
+- **Prior tested UI checkpoint:** tag `v0.10-ui-dropdowns-working` — Fit Canvas aspect
+  pill + Model/Quantity dropdowns.
+- **Top nav restructure (2026-06-27):** the 5 text tabs overflowed the panel width, so
+  nav is now TWO tiers — a top **Image** tab (`.toptab`, `data-toptab`, future Print
+  drops in as a sibling) + a `<nav class="subnav">` of 5 icon-only operator buttons
+  (inline-SVG, `class="tab opicon"`, original `id`/`data-view` kept so the existing
+  `showViewByClass`/`onTabChanged` path is reused — ZERO app.js change). Active icon =
+  the existing `.tab.active` mustard+underline. Tooltip = the **native `title`** only
+  (UXP renders it as a small dark tag); the earlier CSS `.op-tip` pill was removed
+  because it dropped below the row and overlapped the cost counter. Native `title` is
+  NOT CSS-styleable — its look is host-controlled.
 - **Prior tested checkpoints:** `v0.10-session-scoping-working` (per-document
   authorship session), `v0.10-foundation-working` (recall wrapper + session log +
   re-run delete fix), `checkpoint-foundation-recall-log`.
