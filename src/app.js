@@ -4008,12 +4008,29 @@
   // image bytes. `params` is sanitized so reference-image base64 / source
   // pixels never enter the log.
   // =======================================================================
-  const LOG_FILE   = "kbimage-session-log.jsonl";
-  const SESSION_ID = "sess-" + Date.now().toString(36);
+  // The authorship session is PER ACTIVE DOCUMENT, not per plugin launch.
+  // sessionId rotates whenever the active document changes (see
+  // rotateAuthorshipSession). The COST METER is deliberately NOT part of this
+  // — it is per-launch and keeps accumulating across documents.
+  let   sessionId  = "sess-" + Date.now().toString(36) + "-0";
+  let   __sessionSeq = 0;
   let   __logSeq   = 0;
   const sessionLog = [];   // in-memory source of truth (recorded as it happens)
+  // Which document the current authorship session belongs to. Baselined in
+  // hydrate; compared against the active doc to detect a switch.
+  let   currentSessionDocId = undefined;
+  const TEMP_SEL_CHANNEL = "kb_sel_tmp";   // matches runEditPipeline's SEL_CHANNEL
   // Console inspection hooks (visible in the UDT devtools console).
-  try { globalThis.__kbimageLog = sessionLog; globalThis.__kbimageSessionId = SESSION_ID; } catch (_) {}
+  try { globalThis.__kbimageLog = sessionLog; globalThis.__kbimageSessionId = sessionId; } catch (_) {}
+
+  function newSessionId() {
+    return "sess-" + Date.now().toString(36) + "-" + (++__sessionSeq);
+  }
+  // Per-session log filename → each document's authorship trail persists as its
+  // own file (the gateway reads one print's work, not a mix).
+  function currentLogFileName() {
+    return "kbimage-session-" + sessionId + ".jsonl";
+  }
 
   function isoFromMs(ms) {
     try { return new Date(ms).toISOString(); } catch (_) { return String(ms); }
@@ -4047,7 +4064,7 @@
     const now = Date.now();
     return {
       id: "rec-" + now.toString(36) + "-" + (++__logSeq),
-      sessionId: SESSION_ID,
+      sessionId: sessionId,
       ts: now,                       // epoch ms
       tsISO: isoFromMs(now),         // convenience, human-readable
       op: op,
@@ -4066,7 +4083,7 @@
   async function flushLog() {
     try {
       const folder = await fsLocal().getDataFolder();
-      const file = await folder.createFile(LOG_FILE, { overwrite: true });
+      const file = await folder.createFile(currentLogFileName(), { overwrite: true });
       let text = "";
       for (let i = 0; i < sessionLog.length; i++) text += JSON.stringify(sessionLog[i]) + "\n";
       await file.write(text, { format: fmts().utf8 });
@@ -4095,6 +4112,96 @@
       }
     }
     await flushLog();
+  }
+
+  // =======================================================================
+  // PER-DOCUMENT AUTHORSHIP SESSION.
+  //
+  // The session log + temp channel + pending preview belong to ONE document.
+  // When the active document changes we rotate the AUTHORSHIP session so each
+  // document (each print) gets a clean trail the gateway can read on its own.
+  //
+  // The COST METER (sessionTotal / sessionSince) is intentionally untouched
+  // here — it is a per-LAUNCH running total that keeps accumulating across
+  // documents and only resets when the plugin / Photoshop closes.
+  // =======================================================================
+
+  // Best-effort: remove a leftover temp selection channel in the now-active
+  // document. Guarded; a missing channel or a busy host is harmless.
+  async function clearTempSelChannel() {
+    const ps = psMod();
+    if (!ps.app.activeDocument) return;
+    await ps.core.executeAsModal(async function () {
+      try {
+        if (await channelExistsByName(TEMP_SEL_CHANNEL)) {
+          try { await selectRGBChannel(); } catch (_) {}
+          await deleteChannelByName(TEMP_SEL_CHANNEL);
+        }
+      } catch (e) { try { console.warn(TAG, "clearTempSelChannel:", e); } catch (_) {} }
+    }, { commandName: "KBImage — clear temp channel" });
+  }
+
+  // Rotate the authorship session for a new active document. Sets the doc id
+  // FIRST so concurrent listener fires no-op. Does NOT touch the cost meter.
+  async function rotateAuthorshipSession(newDocId, reason) {
+    const prevId = currentSessionDocId;
+    currentSessionDocId = newDocId;
+    sessionId = newSessionId();
+    sessionLog.length = 0;                 // empty IN PLACE so __kbimageLog ref stays valid
+    __logSeq = 0;
+    try { globalThis.__kbimageSessionId = sessionId; } catch (_) {}
+    // Drop pending preview/recall state from the previous document. We do NOT
+    // delete that document's preview layer — it lives in that document; we
+    // only release the in-memory handle and hide the bar.
+    pendingRecall = null;
+    try { hideRecallBar(); } catch (_) {}
+    try { console.log(TAG, "[session] rotate (" + reason + "): doc " + prevId + " → " + newDocId + ", new " + sessionId); } catch (_) {}
+    try { await clearTempSelChannel(); } catch (_) {}
+  }
+
+  // Read the active doc id; rotate if it changed. Cheap id-compare so spurious
+  // notification fires (e.g. layer selects) are no-ops.
+  async function maybeRotateSession(reason) {
+    let id = null;
+    try {
+      const d = psMod().app.activeDocument;
+      id = (d && typeof d.id !== "undefined") ? d.id : null;
+    } catch (_) { id = null; }
+    if (id == null) return;                       // no document → keep current session
+    if (currentSessionDocId === undefined) {      // first observation = baseline (no rotate)
+      currentSessionDocId = id;
+      return;
+    }
+    if (id === currentSessionDocId) return;       // same document → nothing to do
+    await rotateAuthorshipSession(id, reason);
+  }
+
+  // Register a notification listener for document changes. No dedicated
+  // "activeDocumentChanged" event exists in UXP — we listen to document
+  // lifecycle/select events and guard with the id-compare above. Tolerant of
+  // the string-array vs object-array signature difference across PS versions.
+  function registerDocChangeListener() {
+    const cb = function () {
+      maybeRotateSession("notify").catch(function (e) {
+        try { console.warn(TAG, "[session] notify rotate failed:", e); } catch (_) {}
+      });
+    };
+    const events = ["open", "close", "make", "select"];
+    try {
+      const ps = psMod();
+      if (!ps.action || typeof ps.action.addNotificationListener !== "function") {
+        try { console.warn(TAG, "[session] addNotificationListener unavailable; per-action backstop only."); } catch (_) {}
+        return;
+      }
+      try {
+        ps.action.addNotificationListener(events, cb);                       // string-array form
+      } catch (e1) {
+        ps.action.addNotificationListener(events.map(function (n) { return { event: n }; }), cb);  // object-array fallback
+      }
+      try { console.log(TAG, "[session] doc-change listener registered."); } catch (_) {}
+    } catch (e) {
+      try { console.warn(TAG, "[session] listener registration failed; per-action backstop only:", e); } catch (_) {}
+    }
   }
 
   // =======================================================================
@@ -4436,6 +4543,12 @@
     }
     const btn = $("generate-btn");
     if (btn && btn.classList.contains("disabled")) return;
+
+    // Backstop: if the active document changed since the last run (and the
+    // notification listener somehow missed it), rotate the authorship session
+    // BEFORE this op writes to the log — never pool a new doc's work into the
+    // old trail. Does not touch the cost meter.
+    try { await maybeRotateSession("action"); } catch (_) {}
 
     const $prompt = $("prompt");
     const userPrompt = (($prompt && $prompt.value) || "").trim();
@@ -4987,8 +5100,17 @@
     const $warn = $("warn-threshold");
     if ($warn) $warn.value = warnThreshold > 0 ? String(warnThreshold) : "";
     _rebuildRatesTable();
-    resetSession();          // start the session clock ("since HH:MM")
+    resetSession();          // start the PER-LAUNCH cost meter clock ("since HH:MM")
     _updateCostEstimate();
+
+    // Per-document authorship session: baseline the current active document so
+    // the initial session belongs to it, then listen for active-document
+    // changes. The cost meter is intentionally NOT rotated by this.
+    try {
+      const _d = psMod().app.activeDocument;
+      currentSessionDocId = (_d && typeof _d.id !== "undefined") ? _d.id : undefined;
+    } catch (_) { currentSessionDocId = undefined; }
+    registerDocChangeListener();
 
     // Default tab: Generate if a key is saved, Settings otherwise.
     // v0.06 — open Generate if EITHER provider key is saved (Generate is

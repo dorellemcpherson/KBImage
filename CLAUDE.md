@@ -7,13 +7,22 @@ Read this entire file before writing or changing any code.
 **Where we stopped:** the two foundation layers — the **recall wrapper** and the
 **append-only session log** — are built, adopted by **Generate** and the
 **Select/Edit-tab edits**, and **TESTED WORKING in Photoshop**. The re-run
-"Delete not currently available" bug is fixed. See "Foundation layers" below.
+"Delete not currently available" bug AND the per-document session-scoping fix are
+both done and tested. See "Foundation layers" below.
 
 - **Latest checkpoint (TESTED):** commit on `master`, tag
-  `v0.10-foundation-working` — recall wrapper + session log + the re-run delete
-  fix, confirmed in PS. Recover with `git checkout v0.10-foundation-working`.
-- **Earlier checkpoint:** commit `774e6ee`, tag `checkpoint-foundation-recall-log`
-  (pre-test, before the delete fix).
+  `v0.10-session-scoping-working` — adds the per-document authorship session on
+  top of the foundation. Recover with `git checkout v0.10-session-scoping-working`.
+- **Prior tested checkpoint:** tag `v0.10-foundation-working` (recall wrapper +
+  session log + re-run delete fix). Earlier: `checkpoint-foundation-recall-log`.
+- **Per-document session scoping (2026-06-27):** the authorship session was
+  plugin-launch-scoped, pooling multiple documents into one log/channel trail.
+  Now `sessionId` rotates when the active document changes (notification listener
+  on open/close/make/select + id-compare, plus a backstop in `actGenerate`):
+  new `sessionId`, empty `sessionLog`, per-session log FILE
+  (`kbimage-session-<sessionId>.jsonl`), `kb_sel_tmp` cleared, `pendingRecall`
+  dropped. The **COST METER is deliberately per-LAUNCH** — NOT rotated on doc
+  change; it only resets on plugin/PS close (or the manual Reset button).
 - **The re-run delete fix (2026-06-27):** `deleteLayersById` used the bare key
   `target:` instead of `_target:`, so Photoshop ignored the layer id and ran
   Delete against the ambient (often mask/alpha-channel) target → "Delete not
