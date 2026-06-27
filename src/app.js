@@ -64,6 +64,37 @@
 
   function handleClick(e) {
     try {
+      // ----- Custom dropdowns (Model / Quantity) -----
+      // A click inside a .dropdown is fully handled here; a click anywhere
+      // else closes any open menu, then proceeds to normal handling.
+      const inDropdown = e.target.closest(".dropdown");
+      if (!inDropdown) {
+        closeAllDropdowns();
+      } else {
+        const ddTrigger = e.target.closest(".dd-trigger");
+        if (ddTrigger) {
+          toggleDropdown(ddTrigger.getAttribute("data-dd"));
+          return;
+        }
+        const ddOption = e.target.closest(".dd-option");
+        if (ddOption) {
+          const grp = ddOption.getAttribute("data-dd-group");
+          const val = ddOption.getAttribute("data-dd-value");
+          closeAllDropdowns();
+          if (grp === "model") {
+            if (typeof onModelChanged === "function") onModelChanged(val);  // sets cachedModelId + rebuilds aspect/res + cost
+            setModelDropdownSelection(val);                                  // label + highlight (onModelChanged no-ops if same value)
+          } else if (grp === "quantity") {
+            cachedQuantity = Math.max(1, Math.min(4, Number(val) || 1));
+            setQuantityDropdown(cachedQuantity);
+            try { console.log(TAG, "quantity →", cachedQuantity); } catch (_) {}
+            if (typeof updateCostEstimate === "function") updateCostEstimate();
+          }
+          return;
+        }
+        return;   // click inside dropdown chrome but not trigger/option → swallow
+      }
+
       const tab = e.target.closest("[data-view]");
       if (tab) {
         try { console.log(TAG, "click: tab →", tab.getAttribute("data-view")); } catch (_) {}
@@ -156,7 +187,7 @@
     if (!t) return;
     const tag = (t.tagName || "").toLowerCase();
     if (tag === "input" || tag === "textarea") return;
-    if (t.matches && t.matches('[role="button"], [role="tab"], .pill, [data-action], [data-view]')) {
+    if (t.matches && t.matches('[role="button"], [role="tab"], .pill, .dd-option, [data-action], [data-view]')) {
       e.preventDefault();
       t.click();
     }
@@ -290,6 +321,11 @@
   // maxRefImages is the per-model reference image cap.
   const DEFAULT_MODEL_ID = "gemini-3-pro-image-preview";
   const MATCH_INPUT = "Match Input";
+  // Fit Canvas — a synthetic aspect option shown ONLY in the pill row (never
+  // stored in MODELS.aspectRatios, so the aspect-math helpers never see it).
+  // When selected, generation uses the active document's own aspect (nearest
+  // model-supported ratio) so the placed result fills the canvas edge-to-edge.
+  const FIT_CANVAS = "Fit Canvas";
   const MODELS = {
     "gemini-3-pro-image-preview": {
       id: "gemini-3-pro-image-preview",
@@ -332,6 +368,16 @@
   };
   function defaultResFor(modelId)    { const m = MODELS[modelId]; return (m && (m.resolutions.indexOf("2K") >= 0 ? "2K" : m.resolutions[0])) || "2K"; }
   function defaultAspectFor(modelId) { return MATCH_INPUT; }
+  // Aspect VALUES for the pill row = the model's ratios with FIT_CANVAS spliced
+  // in right after MATCH_INPUT. Keeps Fit Canvas in the UI only; MODELS stays
+  // untouched. Used by both aspect-rebuild sites so selection survives model
+  // switches.
+  function aspectValuesFor(modelId) {
+    const m = MODELS[modelId] || MODELS[DEFAULT_MODEL_ID];
+    const ratios = (m && m.aspectRatios) ? m.aspectRatios : [MATCH_INPUT];
+    const rest = ratios.filter(function (r) { return r !== MATCH_INPUT && r !== FIT_CANVAS; });
+    return [MATCH_INPUT, FIT_CANVAS].concat(rest);
+  }
 
   // Map UI labels (model registry values) to the literal strings the API
   // accepts for image_size. Per docs the 0.5K slot is sent as "512" for
@@ -439,6 +485,24 @@
     const mode = opts.aspectMode || "generate";
     const explicit = opts.aspectRatio;
     const tag = "[" + mode + "]";
+
+    // ----- FIT CANVAS: use the ACTIVE DOCUMENT's own aspect (any mode) -----
+    // Read the canvas dims LIVE, snap to the nearest model-supported ratio so
+    // the generated result fills the document edge-to-edge (no transparent
+    // borders). Falls back to opts dims, then a safe default.
+    if (explicit === FIT_CANVAS) {
+      let cw = 0, ch = 0;
+      try {
+        const d = psMod().app.activeDocument;
+        if (d) { cw = Math.round(d.width); ch = Math.round(d.height); }
+      } catch (_) {}
+      if (!cw || !ch) { cw = opts.sourceWidth || 0; ch = opts.sourceHeight || 0; }
+      if (cw && ch) {
+        const r = nearestSupportedAspectOriented(modelId, cw, ch);
+        return { ratio: r, picked: tag + " fit-canvas(" + cw + "x" + ch + ")" };
+      }
+      return { ratio: firstSupportedRatio(modelId), picked: tag + " fit-canvas-no-doc-default" };
+    }
 
     // ----- EDIT: base image dictates shape (composite-back rule) -----
     if (mode === "edit") {
@@ -3110,6 +3174,69 @@
     }
   }
 
+  // ----- Model / Quantity DROPDOWNS (div-based; replace the pill rows) -----
+  // Model options come from the SAME MODELS registry the pills read — a new
+  // registry entry appears here automatically, no markup. Selecting an option
+  // drives the exact same state the pills did (onModelChanged / cachedQuantity).
+  function rebuildModelDropdown(selectedId) {
+    const menu = $("dd-model-menu");
+    if (!menu) return;
+    while (menu.firstChild) menu.removeChild(menu.firstChild);
+    const ids = Object.keys(MODELS);
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      const m = MODELS[id];
+      if (!m) continue;
+      const opt = document.createElement("div");
+      opt.className = "dd-option" + (id === selectedId ? " selected" : "");
+      opt.setAttribute("role", "option");
+      opt.setAttribute("tabindex", "0");
+      opt.setAttribute("data-dd-group", "model");
+      opt.setAttribute("data-dd-value", id);
+      opt.textContent = m.displayName || id;
+      menu.appendChild(opt);
+    }
+    setModelDropdownSelection(selectedId);
+  }
+  function setModelDropdownSelection(id) {
+    const valEl = $("dd-model-value");
+    const m = MODELS[id];
+    if (valEl) valEl.textContent = (m && m.displayName) || id || "Model";
+    const menu = $("dd-model-menu");
+    if (menu) {
+      const opts = menu.querySelectorAll(".dd-option");
+      for (let i = 0; i < opts.length; i++) {
+        opts[i].classList.toggle("selected", opts[i].getAttribute("data-dd-value") === id);
+      }
+    }
+  }
+  function setQuantityDropdown(n) {
+    const q = Math.max(1, Math.min(4, Number(n) || 1));
+    const valEl = $("dd-quantity-value");
+    if (valEl) valEl.textContent = String(q);
+    const menu = $("dd-quantity-menu");
+    if (menu) {
+      const opts = menu.querySelectorAll(".dd-option");
+      for (let i = 0; i < opts.length; i++) {
+        opts[i].classList.toggle("selected", Number(opts[i].getAttribute("data-dd-value")) === q);
+      }
+    }
+  }
+  function closeAllDropdowns(exceptMenuId) {
+    const menus = document.querySelectorAll(".dd-menu");
+    for (let i = 0; i < menus.length; i++) {
+      if (exceptMenuId && menus[i].id === exceptMenuId) continue;
+      menus[i].classList.add("hidden");
+    }
+  }
+  function toggleDropdown(name) {
+    const menu = $("dd-" + name + "-menu");
+    if (!menu) return;
+    const willOpen = menu.classList.contains("hidden");
+    closeAllDropdowns(menu.id);
+    menu.classList.toggle("hidden", !willOpen);
+  }
+
   // ----- reference image helpers -----
   function detectMime(filename) {
     const idx = filename.lastIndexOf(".");
@@ -4960,8 +5087,8 @@
     const model = MODELS[newId];
 
     // Repaint Resolution + Aspect pills against the new option set.
-    rebuildPills("pills-resolution", model.resolutions,  defaultResFor(newId));
-    rebuildPills("pills-aspect",     model.aspectRatios, defaultAspectFor(newId));
+    rebuildPills("pills-resolution", model.resolutions,        defaultResFor(newId));
+    rebuildPills("pills-aspect",     aspectValuesFor(newId),   defaultAspectFor(newId));
 
     // Enforce per-model reference cap. Keep the first N, drop the rest, warn.
     if (refImages.length > model.maxRefImages) {
@@ -5078,15 +5205,17 @@
     cachedModelId = initialModel;
     try { console.log(TAG, "loaded model:", initialModel); } catch (_) {}
 
-    // v0.06 — render Model pills from the registry, with the saved /
+    // v0.06 — render the Model dropdown from the registry, with the saved /
     // default model preselected. Adding a provider to MODELS makes it
     // appear here automatically.
-    rebuildModelPills(initialModel);
+    rebuildModelDropdown(initialModel);
+    // Quantity dropdown reflects the current cachedQuantity (default 1).
+    setQuantityDropdown(cachedQuantity);
 
     // Build Resolution + Aspect pills from the model's option sets.
     const model = MODELS[initialModel];
-    rebuildPills("pills-resolution", model.resolutions,  defaultResFor(initialModel));
-    rebuildPills("pills-aspect",     model.aspectRatios, defaultAspectFor(initialModel));
+    rebuildPills("pills-resolution", model.resolutions,            defaultResFor(initialModel));
+    rebuildPills("pills-aspect",     aspectValuesFor(initialModel), defaultAspectFor(initialModel));
 
     // Initial ref hint.
     updateRefAddState();

@@ -10,11 +10,25 @@ Read this entire file before writing or changing any code.
 "Delete not currently available" bug AND the per-document session-scoping fix are
 both done and tested. See "Foundation layers" below.
 
-- **Latest checkpoint (TESTED):** commit on `master`, tag
-  `v0.10-session-scoping-working` — adds the per-document authorship session on
-  top of the foundation. Recover with `git checkout v0.10-session-scoping-working`.
-- **Prior tested checkpoint:** tag `v0.10-foundation-working` (recall wrapper +
-  session log + re-run delete fix). Earlier: `checkpoint-foundation-recall-log`.
+- **Latest checkpoint (TESTED):** commit on `master`, tag `v0.10-ui-dropdowns-working`
+  — adds the Fit Canvas aspect pill + Model/Quantity dropdowns. Recover with
+  `git checkout v0.10-ui-dropdowns-working`.
+- **Prior tested checkpoints:** `v0.10-session-scoping-working` (per-document
+  authorship session), `v0.10-foundation-working` (recall wrapper + session log +
+  re-run delete fix), `checkpoint-foundation-recall-log`.
+- **UI: Fit Canvas + dropdowns (2026-06-27):**
+  - **Fit Canvas** aspect pill — synthetic option (`FIT_CANVAS`) injected into the
+    aspect row only via `aspectValuesFor()` (NOT in `MODELS.aspectRatios`, so the
+    aspect-math helpers never see it). `resolveAspectForRequest` reads the active
+    doc's live w/h → nearest supported ratio so the result fills the canvas
+    edge-to-edge. Aspect row's selected pill is bright blue (`#pills-aspect
+    .pill.selected`, `--info`); other rows keep mustard. `Match Input` unchanged.
+  - **Model + Quantity are div-based dropdowns** (not pills, not native `<select>`
+    — unreliable in UXP). Model options come from the `MODELS` registry
+    (`rebuildModelDropdown`); selecting still calls `onModelChanged`. Quantity sets
+    `cachedQuantity`. Wired through `handleClick` (`[data-dd]` toggle / `.dd-option`
+    select / outside-click close). Dead-but-harmless: `rebuildModelPills` + two
+    unreachable `handleClick` pill branches (the `.pills` elements no longer exist).
 - **Per-document session scoping (2026-06-27):** the authorship session was
   plugin-launch-scoped, pooling multiple documents into one log/channel trail.
   Now `sessionId` rotates when the active document changes (notification listener

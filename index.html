@@ -273,6 +273,74 @@ body {
   outline: 2px solid var(--info);
   outline-offset: 2px;
 }
+/* Aspect row only: the active pill is bright BLUE (other rows keep mustard). */
+#pills-aspect .pill.selected {
+  background: linear-gradient(180deg, #7D97F4, #5872E6);
+  border-color: transparent;
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 1px 8px rgba(107, 136, 239, .30);
+}
+#pills-aspect .pill.selected:hover {
+  background: linear-gradient(180deg, #8AA2F6, #6379E8);
+}
+
+/* ===== DROPDOWNS (Model / Quantity — div-based, UXP-safe; no <select>) =====
+   position:absolute menu on a position:relative parent is allowed for popups
+   (no fixed/sticky, no flex gap). */
+.dropdown { position: relative; width: 100%; }
+.dd-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  background: #000;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-input);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.dd-trigger:hover { border-color: var(--hairline-3); }
+.dd-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dd-caret { margin-left: 8px; color: var(--text-faint); font-size: 10px; }
+.dd-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 38px;
+  z-index: 50;
+  background: #161618;
+  border: 1px solid var(--hairline-3);
+  border-radius: var(--r-input);
+  padding: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+}
+.dd-option {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.dd-option:hover { background: rgba(255, 255, 255, .05); color: var(--text); }
+.dd-option.selected {
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  color: var(--ink);
+  font-weight: 600;
+}
+.dd-trigger:focus-visible,
+.dd-option:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
 
 /* ===== BUTTONS (plain divs styled as buttons) ===== */
 .btn-generate {
@@ -852,10 +920,16 @@ code {
 
       <div class="field">
         <span class="field-label">Model</span>
-        <!-- Populated by rebuildModelPills() from the MODELS registry on
-             hydrate. Every provider's models appear here automatically —
-             no hardcoded entries. -->
-        <div id="pills-model" class="pills" data-group="model"></div>
+        <!-- Div-based dropdown. Options populated by rebuildModelDropdown()
+             from the MODELS registry on hydrate — adding a model later is a
+             registry entry, no markup change. -->
+        <div class="dropdown" id="dd-model">
+          <div class="dd-trigger" role="button" tabindex="0" data-dd="model" aria-haspopup="listbox" aria-label="Model">
+            <span class="dd-value" id="dd-model-value">Model</span>
+            <span class="dd-caret">▾</span>
+          </div>
+          <div class="dd-menu hidden" id="dd-model-menu" role="listbox"></div>
+        </div>
       </div>
 
       <!-- pills-resolution + pills-aspect populated by JS from the selected
@@ -872,11 +946,17 @@ code {
 
       <div class="field">
         <span class="field-label">Quantity (N = N× cost)</span>
-        <div id="pills-quantity" class="pills" data-group="quantity">
-          <div class="pill selected" role="button" tabindex="0" data-value="1">1</div>
-          <div class="pill"          role="button" tabindex="0" data-value="2">2</div>
-          <div class="pill"          role="button" tabindex="0" data-value="3">3</div>
-          <div class="pill"          role="button" tabindex="0" data-value="4">4</div>
+        <div class="dropdown" id="dd-quantity">
+          <div class="dd-trigger" role="button" tabindex="0" data-dd="quantity" aria-haspopup="listbox" aria-label="Quantity">
+            <span class="dd-value" id="dd-quantity-value">1</span>
+            <span class="dd-caret">▾</span>
+          </div>
+          <div class="dd-menu hidden" id="dd-quantity-menu" role="listbox">
+            <div class="dd-option selected" role="option" tabindex="0" data-dd-group="quantity" data-dd-value="1">1</div>
+            <div class="dd-option"          role="option" tabindex="0" data-dd-group="quantity" data-dd-value="2">2</div>
+            <div class="dd-option"          role="option" tabindex="0" data-dd-group="quantity" data-dd-value="3">3</div>
+            <div class="dd-option"          role="option" tabindex="0" data-dd-group="quantity" data-dd-value="4">4</div>
+          </div>
         </div>
       </div>
 
