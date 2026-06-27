@@ -1834,6 +1834,7 @@
     const folder = await fsLocal().getDataFolder();
     const file = await folder.createFile("kbanana-upscale-" + Date.now() + "." + ext, { overwrite: true });
     await file.write(arrayBuffer, { format: fmts().binary });
+    try { lastPlacedFileRef = file.nativePath; } catch (_) {}   // session-log afterSnapshotRef
     const token = await fsLocal().createSessionToken(file);
 
     let layerID    = null;
@@ -3516,54 +3517,28 @@
     if ($btn) $btn.classList.add("disabled");
 
     generateInFlight = true;
-    const sourceMode = cachedUpscaleSource === "active-layer" ? "active-layer" : "composite";
-    setStatus("busy", sourceMode === "active-layer"
-      ? "Reading active layer…"
-      : "Reading flattened composite…");
     try {
-      let sourceImage = null;
-      await ps.core.executeAsModal(async function () {
-        sourceImage = sourceMode === "active-layer"
-          ? await readActiveLayerAsImage()
-          : await readDocCompositeAsImage();
-      }, { commandName: "KBImage — read pixels for Topaz upscale" });
-
-      const enhanced = await upscaleViaTopaz(cachedTopazKey, sourceImage, {
-        factor:   cachedUpscaleFactor,
-        onStatus: function (s) { setStatus("busy", "Topaz: " + s); },
-      });
-      // enhanced = { bytes: ArrayBuffer, mime, width, height }
-      // Note: width/height come from the byte header (already decoded
-      // by the adapter). No need to re-decode here.
-
-      // Compute the upscale factor tag for the layer name.
-      const srcW = (sourceImage && sourceImage.width)  || 0;
-      const outW = enhanced.width  || 0;
-      let factorTag = "";
-      if (srcW > 0 && outW > 0) {
-        const fx = outW / srcW;
-        factorTag = fx.toFixed(1) + "x";
-      }
-
-      setStatus("busy", "Placing enhanced layer at native size…");
-      const srcTag = sourceMode === "active-layer" ? "Active Layer" : "Composite";
-      const namePieces = ["Topaz Upscale"];
-      if (factorTag) namePieces.push(factorTag);
-      namePieces.push("(" + srcTag + ")");
-      namePieces.push(timestampForLayerName());
-      const name = namePieces.join(" ");
-      const placed = await placeUpscaleResultAsLayer(enhanced.bytes, enhanced.mime, name);
-
-      setStatus("ok", "Done — upscaled layer placed"
-        + (factorTag ? " (" + factorTag + ", " + placed.nativeW + "×" + placed.nativeH + ")" : "")
-        + ". Canvas grown to match.");
-      // v0.09 — Topaz bills by OUTPUT megapixels. Use the actual enhanced
-      // dimensions (fallback to placed native dims) for real spend.
+      // Recall-wrapped (single preview). The recall bar on the Upscale tab
+      // (a second .recall-bar) drives Accept / Re-run; executeUpscale does the
+      // read→Topaz→place and adds the megapixel cost per run.
+      let srcRef = null, _targetLayerId = null;
       try {
-        const __w = enhanced.width  || placed.nativeW || 0;
-        const __h = enhanced.height || placed.nativeH || 0;
-        if (__w && __h) addSessionCost(topazPerMP() * (__w * __h) / 1e6);
+        const doc = ps.app.activeDocument;
+        const al = doc && doc.activeLayers && doc.activeLayers[0];
+        if (al && typeof al.id !== "undefined") _targetLayerId = al.id;
+        srcRef = (cachedUpscaleSource === "active-layer")
+          ? ("active-layer:" + (_targetLayerId != null ? _targetLayerId : "?"))
+          : "composite";
       } catch (_) {}
+      await runWithRecall({
+        op: "upscale:topaz",
+        params: upscaleParamsFromForm(),
+        targetLayerId: _targetLayerId,
+        sourceRef: srcRef,
+        paramsProvider: upscaleParamsFromForm,
+        execute: executeUpscale,
+      });
+      setStatus("ok", "Preview ready — Accept to keep or Re-run.");
     } catch (err) {
       try { console.error(TAG, "topaz upscale failed:", err); } catch (_) {}
       setStatus("bad", (err && err.message) || "upscale failed");
@@ -3957,6 +3932,8 @@
     } catch (_) {}
 
     const N = Math.max(1, Math.min(4, Number(quantity) || 1));
+    const layerIds = [];
+    let afterRef = null;
     for (let i = 1; i <= N; i++) {
       setStatus("busy", "Generating " + i + " of " + N
         + " (Reference Gen, " + refImages.length + " ref"
@@ -3964,8 +3941,11 @@
       const img = await generateImage(activeApiKey(), opts);
       setStatus("busy", "Placing layer " + i + " of " + N + "…");
       const layerName = buildBatchLayerName("Compose-RefGen", i, N);
-      await placeBase64AsLayer(img.base64, layerName);
+      const lid = await placeBase64AsLayer(img.base64, layerName);
+      if (lid != null) layerIds.push(lid);
+      if (lastPlacedFileRef) afterRef = lastPlacedFileRef;
     }
+    return { layerIds: layerIds, afterSnapshotRef: afterRef };
   }
 
   // OP 2 — Fuse: read the flattened composite as the base image, send
@@ -4016,6 +3996,7 @@
     };
 
     const N = 3; // fixed
+    const options = [];
     for (let i = 1; i <= N; i++) {
       setStatus("busy", "Fusing option " + i + " of " + N + "…");
       const img = await generateImage(activeApiKey(), opts);
@@ -4023,8 +4004,11 @@
       const layerName = buildBatchLayerName("Fuse", i, N);
       // Fuse output covers the whole canvas — place via the edited-layer
       // path with no mask so fit-to-canvas + rasterize still apply.
-      await placeBase64AsEditedLayer(img.base64, null, layerName);
+      const lid = await placeBase64AsEditedLayer(img.base64, null, layerName);
+      options.push({ layerId: lid, afterSnapshotRef: lastPlacedFileRef || null });
     }
+    // Multi-option preview: each result is its own pickable option.
+    return { options: options };
   }
 
   // OP 3 — Reference Inpaint: PS selection + reference; reuse the
@@ -4110,6 +4094,8 @@
     const _clientMaskSpec = null;
 
     const N = Math.max(1, Math.min(4, Number(quantity) || 1));
+    const layerIds = [];
+    let afterRef = null;
     for (let i = 1; i <= N; i++) {
       setStatus("busy", "Inpainting " + i + " of " + N
         + " (with " + refImages.length + " ref"
@@ -4117,8 +4103,135 @@
       const img = await generateImage(activeApiKey(), opts);
       setStatus("busy", "Placing layer " + i + " of " + N + "…");
       const layerName = buildBatchLayerName("Compose-RefInpaint", i, N);
-      await placeBase64AsEditedLayer(img.base64, _clientMaskSpec, layerName);
+      const lid = await placeBase64AsEditedLayer(img.base64, _clientMaskSpec, layerName);
+      if (lid != null) layerIds.push(lid);
+      if (lastPlacedFileRef) afterRef = lastPlacedFileRef;
     }
+    // selBounds → re-run restores the same selection (via editReRunPrep).
+    return { layerIds: layerIds, afterSnapshotRef: afterRef, selBounds: userSelBounds };
+  }
+
+  // ----- Compose + Upscale operators, recall-wrapped -----
+  // Same pattern as Generate/Edit: a paramsFromForm (re-read on re-run) + an
+  // execute that runs the existing place flow, adds cost per actual run, and
+  // returns { layerIds | options, afterSnapshotRef[, state] }.
+  function refgenParamsFromForm() {
+    const modelId = cachedModelId || DEFAULT_MODEL_ID;
+    const $prompt = $("prompt");
+    return {
+      modelId: modelId,
+      prompt: (($prompt && $prompt.value) || "").trim(),
+      imageSize: readPills("pills-resolution", defaultResFor(modelId)),
+      aspectRatio: readPills("pills-aspect", defaultAspectFor(modelId)),
+      refImagesCount: refImages.length,
+      quantity: Math.max(1, Math.min(4, Number(cachedQuantity) || 1)),
+    };
+  }
+  async function executeRefGen(params) {
+    const r = await runComposeRefGen(params.prompt, params.quantity);
+    try {
+      const modelId = params.modelId || cachedModelId || DEFAULT_MODEL_ID;
+      addSessionCost(perImageCost(modelId, params.imageSize || defaultResFor(modelId)) * (params.quantity || 1));
+    } catch (_) {}
+    return { layerIds: (r && r.layerIds) || [], afterSnapshotRef: (r && r.afterSnapshotRef) || null };
+  }
+
+  function refinpaintParamsFromForm() {
+    const modelId = cachedModelId || DEFAULT_MODEL_ID;
+    const $prompt = $("prompt");
+    return {
+      modelId: modelId,
+      prompt: (($prompt && $prompt.value) || "").trim(),
+      imageSize: readPills("pills-resolution", defaultResFor(modelId)),
+      aspectRatio: readPills("pills-aspect", defaultAspectFor(modelId)),
+      refImagesCount: refImages.length,
+      quantity: Math.max(1, Math.min(4, Number(cachedQuantity) || 1)),
+    };
+  }
+  async function executeRefInpaint(params) {
+    const r = await runComposeRefInpaint(params.prompt, params.quantity);
+    try {
+      const modelId = params.modelId || cachedModelId || DEFAULT_MODEL_ID;
+      addSessionCost(perImageCost(modelId, params.imageSize || defaultResFor(modelId)) * (params.quantity || 1));
+    } catch (_) {}
+    // state.selBounds → reuses editReRunPrep (rect re-select) + editOnSettle (no-op, no channel).
+    return {
+      layerIds: (r && r.layerIds) || [],
+      afterSnapshotRef: (r && r.afterSnapshotRef) || null,
+      state: { selBounds: (r && r.selBounds) || null, selChannel: null },
+    };
+  }
+
+  function fuseParamsFromForm() {
+    const modelId = cachedModelId || DEFAULT_MODEL_ID;
+    const $prompt = $("prompt");
+    return {
+      modelId: modelId,
+      prompt: (($prompt && $prompt.value) || "").trim(),   // optional hint
+      imageSize: readPills("pills-resolution", defaultResFor(modelId)),
+      aspectRatio: MATCH_INPUT,
+      refImagesCount: refImages.length,
+    };
+  }
+  async function executeFuse(params) {
+    const r = await runComposeFuse(params.prompt);   // always 3 options
+    try {
+      const modelId = params.modelId || cachedModelId || DEFAULT_MODEL_ID;
+      addSessionCost(perImageCost(modelId, params.imageSize || defaultResFor(modelId)) * 3);
+    } catch (_) {}
+    return { options: (r && r.options) || [] };
+  }
+
+  function upscaleParamsFromForm() {
+    return {
+      sourceMode: cachedUpscaleSource === "active-layer" ? "active-layer" : "composite",
+      factor: cachedUpscaleFactor === 4 ? 4 : 2,
+    };
+  }
+  // The upscale read→Topaz→place flow, lifted out of actUpscaleTopaz so it can
+  // run through the recall wrapper. NOTE: placement grows the canvas (grow-only).
+  // A re-run/discard deletes the layer but does NOT shrink the canvas — this does
+  // not COMPOUND (re-running the same factor grows to the same size), so it's
+  // safe; a discarded upscale just leaves the canvas at the enlarged size.
+  async function executeUpscale(params) {
+    const ps = psMod();
+    const sourceMode = params.sourceMode === "active-layer" ? "active-layer" : "composite";
+    setStatus("busy", sourceMode === "active-layer" ? "Reading active layer…" : "Reading flattened composite…");
+    let sourceImage = null;
+    await ps.core.executeAsModal(async function () {
+      sourceImage = sourceMode === "active-layer"
+        ? await readActiveLayerAsImage()
+        : await readDocCompositeAsImage();
+    }, { commandName: "KBImage — read pixels for Topaz upscale" });
+
+    const enhanced = await upscaleViaTopaz(cachedTopazKey, sourceImage, {
+      factor:   params.factor === 4 ? 4 : 2,
+      onStatus: function (s) { setStatus("busy", "Topaz: " + s); },
+    });
+
+    const srcW = (sourceImage && sourceImage.width) || 0;
+    const outW = enhanced.width || 0;
+    let factorTag = "";
+    if (srcW > 0 && outW > 0) factorTag = (outW / srcW).toFixed(1) + "x";
+
+    setStatus("busy", "Placing enhanced layer at native size…");
+    const srcTag = sourceMode === "active-layer" ? "Active Layer" : "Composite";
+    const namePieces = ["Topaz Upscale"];
+    if (factorTag) namePieces.push(factorTag);
+    namePieces.push("(" + srcTag + ")");
+    namePieces.push(timestampForLayerName());
+    const placed = await placeUpscaleResultAsLayer(enhanced.bytes, enhanced.mime, namePieces.join(" "));
+
+    try {
+      const __w = enhanced.width  || placed.nativeW || 0;
+      const __h = enhanced.height || placed.nativeH || 0;
+      if (__w && __h) addSessionCost(topazPerMP() * (__w * __h) / 1e6);
+    } catch (_) {}
+
+    return {
+      layerIds: (placed && placed.layerID != null) ? [placed.layerID] : [],
+      afterSnapshotRef: lastPlacedFileRef || null,
+    };
   }
 
   // =======================================================================
@@ -4347,15 +4460,29 @@
   // =======================================================================
   let pendingRecall = null;   // the live preview awaiting accept / re-run
 
+  // Every preview layer id, whether the pending preview is single-record
+  // (layerIds[]) or multi-option (options[].layerId). Used by re-run / supersede
+  // so cleanup removes ALL preview layers, not just one.
+  function allPreviewLayerIds(pr) {
+    if (!pr) return [];
+    if (pr.multiOption && Array.isArray(pr.options)) {
+      return pr.options.map(function (o) { return o.layerId; }).filter(function (x) { return x != null; });
+    }
+    return (pr.layerIds || []).filter(function (x) { return x != null; });
+  }
+
+  // CLASS-based so multiple bars work (shared-form bar for Generate/Edit/Compose
+  // + a second bar on the Upscale tab, since the shared form is hidden there).
+  // The bar on the visible tab shows; one in a hidden parent stays invisible.
   function showRecallBar(text) {
-    const label = $("recall-label");
-    const bar   = $("recall-bar");
-    if (label && text) label.textContent = text;
-    if (bar) bar.classList.remove("hidden");
+    const labels = document.querySelectorAll(".recall-label");
+    for (let i = 0; i < labels.length; i++) if (text) labels[i].textContent = text;
+    const bars = document.querySelectorAll(".recall-bar");
+    for (let i = 0; i < bars.length; i++) bars[i].classList.remove("hidden");
   }
   function hideRecallBar() {
-    const bar = $("recall-bar");
-    if (bar) bar.classList.add("hidden");
+    const bars = document.querySelectorAll(".recall-bar");
+    for (let i = 0; i < bars.length; i++) bars[i].classList.add("hidden");
   }
 
   // Delete preview layer(s) by id — inside executeAsModal (UXP rule: all
@@ -4428,16 +4555,20 @@
   //   reRunPrep(state)           — about to Re-run: restore op state the next
   //                                run needs (e.g. reload the selection).
   // `state` is whatever execute() returns on result.state.
+  // descriptor.multiOption (optional): the op produces N independent OPTIONS
+  // (e.g. Fuse's 3). execute returns { options: [{layerId, afterSnapshotRef}, …] }.
+  // The wrapper writes ONE log record per option (all committed:false) and the
+  // pick-from-N accept commits the chosen one + discards the rest. Reusable by
+  // any future multi-option operator.
   async function runWithRecall(descriptor) {
     // A new run supersedes any still-pending preview the user neither
-    // accepted nor re-ran. Discard its layer(s) and release its state; its
-    // log record stays committed:false (a kept rejected fork = evidence).
+    // accepted nor re-ran. Discard ALL its layer(s) and release its state; its
+    // log record(s) stay committed:false (kept rejected forks = evidence).
     if (pendingRecall) {
       const prev = pendingRecall;
       pendingRecall = null;
-      if (prev.layerIds && prev.layerIds.length) {
-        try { await deleteLayersById(prev.layerIds); } catch (_) {}
-      }
+      const prevIds = allPreviewLayerIds(prev);
+      if (prevIds.length) { try { await deleteLayersById(prevIds); } catch (_) {} }
       if (prev.descriptor && typeof prev.descriptor.onSettle === "function") {
         try { await prev.descriptor.onSettle(prev.state, false); } catch (_) {}
       }
@@ -4445,11 +4576,37 @@
     hideRecallBar();
 
     const result = await descriptor.execute(descriptor.params);
+    const state = (result && result.state) || null;
+
+    // ----- MULTI-OPTION (pick-from-N) -----
+    if (descriptor.multiOption) {
+      const raw = (result && Array.isArray(result.options))
+        ? result.options.filter(function (o) { return o && o.layerId != null; })
+        : [];
+      const ofN = raw.length;
+      const options = [];
+      for (let i = 0; i < raw.length; i++) {
+        // One record PER option, tagged option/ofN; targetLayerId = that layer.
+        const p = Object.assign({}, descriptor.params, { option: i + 1, ofN: ofN });
+        const rec = logRecordSkeleton(descriptor.op, p, raw[i].layerId, descriptor.sourceRef);
+        rec.afterSnapshotRef = raw[i].afterSnapshotRef || null;
+        await logRun(rec);
+        options.push({ recordId: rec.id, layerId: raw[i].layerId });
+      }
+      pendingRecall = { multiOption: true, options: options, descriptor: descriptor, state: state };
+      showRecallBar(ofN + " options placed — in the Layers panel pick the one you want, then Accept (the other "
+        + (ofN - 1) + " are discarded). Re-run regenerates all " + ofN + ".");
+      return {
+        previewLayerIds: options.map(function (o) { return o.layerId; }),
+        accept: recallAccept,
+        reRun: recallReRun,
+      };
+    }
+
+    // ----- SINGLE RECORD (one preview, may be a quantity batch) -----
     const layerIds = (result && Array.isArray(result.layerIds))
       ? result.layerIds.filter(function (x) { return x != null; })
       : [];
-    const state = (result && result.state) || null;
-
     // Record the run AS IT HAPPENS (committed:false until an explicit accept).
     const rec = logRecordSkeleton(descriptor.op, descriptor.params, descriptor.targetLayerId, descriptor.sourceRef);
     rec.beforeSnapshotRef = (result && result.beforeSnapshotRef) || null;
@@ -4469,9 +4626,43 @@
 
   async function recallAccept() {
     if (!pendingRecall) return;
-    const recId      = pendingRecall.recordId;
     const descriptor = pendingRecall.descriptor;
     const state      = pendingRecall.state;
+
+    // ----- MULTI-OPTION: pick = the option whose layer is ACTIVE in the
+    // Layers panel. Commit that record; discard the other option layers
+    // (their records stay committed:false = directed-selection evidence). -----
+    if (pendingRecall.multiOption) {
+      let activeId = null;
+      try {
+        const doc = psMod().app.activeDocument;
+        const al = doc && doc.activeLayers && doc.activeLayers[0];
+        if (al && typeof al.id !== "undefined") activeId = al.id;
+      } catch (_) {}
+      const options = pendingRecall.options || [];
+      const chosen = options.filter(function (o) { return o.layerId === activeId; })[0];
+      if (!chosen) {
+        // Not on one of the options — keep the preview pending so they retry.
+        setStatus("bad", "Select one of the " + options.length + " options in the Layers panel, then Accept.");
+        return;
+      }
+      pendingRecall = null;
+      hideRecallBar();
+      const discardIds = options
+        .filter(function (o) { return o.layerId !== chosen.layerId; })
+        .map(function (o) { return o.layerId; });
+      try { await deleteLayersById(discardIds); } catch (_) {}
+      await logFinalizeCommitted(chosen.recordId);   // only the kept option commits
+      if (descriptor && typeof descriptor.onSettle === "function") {
+        try { await descriptor.onSettle(state, true); } catch (_) {}
+      }
+      setStatus("ok", "Kept your pick — " + discardIds.length
+        + " other option" + (discardIds.length === 1 ? "" : "s") + " discarded.");
+      return;
+    }
+
+    // ----- SINGLE: commit the one record; layers all stay. -----
+    const recId = pendingRecall.recordId;
     pendingRecall = null;
     hideRecallBar();
     await logFinalizeCommitted(recId);   // the ONLY thing that commits
@@ -4484,13 +4675,13 @@
   async function recallReRun(overrides) {
     if (!pendingRecall) return;
     const descriptor = pendingRecall.descriptor;
-    const layerIds   = pendingRecall.layerIds;
     const state      = pendingRecall.state;
+    const allIds     = allPreviewLayerIds(pendingRecall);   // single batch OR all options
     pendingRecall = null;
     hideRecallBar();
-    // Discard the preview layer(s). The prior log record remains
-    // committed:false — a kept rejected fork (evidence).
-    try { await deleteLayersById(layerIds); } catch (_) {}
+    // Discard ALL preview layer(s). The prior log record(s) remain
+    // committed:false — kept rejected forks (evidence).
+    try { await deleteLayersById(allIds); } catch (_) {}
     // Restore op-specific state the next run needs (e.g. reload the selection
     // so a selection edit re-applies to the same region).
     if (descriptor && typeof descriptor.reRunPrep === "function") {
@@ -4642,23 +4833,28 @@
   // Recall-bar action handlers (respect the in-flight lock — a re-run makes
   // real API calls and must not overlap a generate).
   async function actRecallAccept() {
+    // Guard: multi-option accept mutates the document (deletes the non-picked
+    // option layers), so it must not overlap an in-flight run.
+    if (generateInFlight) return;
+    generateInFlight = true;
     try { await recallAccept(); }
     catch (e) { try { setStatus("bad", (e && e.message) || String(e)); } catch (_) {} }
+    finally { generateInFlight = false; }
   }
   async function actRecallReRun() {
     if (generateInFlight) return;
     generateInFlight = true;
-    const rrBtn = $("recall-rerun");
-    if (rrBtn) rrBtn.classList.add("disabled");
+    const rrBtns = document.querySelectorAll(".recall-rerun");   // both bars
+    for (let i = 0; i < rrBtns.length; i++) rrBtns[i].classList.add("disabled");
     try {
       setStatus("busy", "Discarding preview & re-running…");
       await recallReRun();
-      setStatus("ok", "Preview ready — Accept to keep or Re-run.");
+      setStatus("ok", "Preview ready — review, then Accept or Re-run.");
     } catch (e) {
       try { setStatus("bad", (e && e.message) || String(e)); } catch (_) {}
     } finally {
       generateInFlight = false;
-      if (rrBtn) rrBtn.classList.remove("disabled");
+      for (let i = 0; i < rrBtns.length; i++) rrBtns[i].classList.remove("disabled");
     }
   }
 
@@ -4729,18 +4925,52 @@
 
     try {
       if (isCompose) {
+        // ----- Compose routed through the RECALL WRAPPER -----
         try { console.log(TAG, "compose START", reqId, "op=" + cachedComposeOp, "model=" + modelId, "N=" + N); } catch (_) {}
+        let srcRef = null;
+        try {
+          const doc = psMod().app.activeDocument;
+          srcRef = (doc && typeof doc.id !== "undefined") ? ("doc:" + doc.id) : null;
+        } catch (_) {}
         if (cachedComposeOp === "refgen") {
-          await runComposeRefGen(userPrompt, N);
-          setStatus("ok", "Done — " + N + " Reference Gen layer" + (N===1?"":"s") + " placed.");
+          await runWithRecall({
+            op: "compose:refgen",
+            params: refgenParamsFromForm(),
+            targetLayerId: null,
+            sourceRef: srcRef,
+            paramsProvider: refgenParamsFromForm,
+            execute: executeRefGen,
+          });
         } else if (cachedComposeOp === "fuse") {
-          await runComposeFuse(userPrompt); // always 3 — quantity ignored
-          setStatus("ok", "Done — 3 Fuse options placed.");
+          await runWithRecall({
+            op: "compose:fuse",
+            params: fuseParamsFromForm(),
+            targetLayerId: null,
+            sourceRef: srcRef,
+            paramsProvider: fuseParamsFromForm,
+            execute: executeFuse,
+            multiOption: true,         // 3 options → pick-from-N accept
+          });
         } else if (cachedComposeOp === "refinpaint") {
-          await runComposeRefInpaint(userPrompt, N);
-          setStatus("ok", "Done — " + N + " Reference Inpaint layer" + (N===1?"":"s") + " placed.");
+          let _targetLayerId = null;
+          try {
+            const doc = psMod().app.activeDocument;
+            const al = doc && doc.activeLayers && doc.activeLayers[0];
+            if (al && typeof al.id !== "undefined") _targetLayerId = al.id;
+          } catch (_) {}
+          await runWithRecall({
+            op: "compose:refinpaint",
+            params: refinpaintParamsFromForm(),
+            targetLayerId: _targetLayerId,
+            sourceRef: srcRef,
+            paramsProvider: refinpaintParamsFromForm,
+            execute: executeRefInpaint,
+            reRunPrep: editReRunPrep,   // re-run re-selects the rect
+            onSettle: editOnSettle,     // no channel → no-op
+          });
         }
-        try { console.log(TAG, "compose OK", reqId); } catch (_) {}
+        setStatus("ok", "Preview ready — Accept to keep or Re-run.");
+        try { console.log(TAG, "compose OK (preview)", reqId); } catch (_) {}
       } else if (isEdit) {
         try { console.log(TAG, "edit START", reqId, "type=" + cachedEditType, "model=" + modelId, "N=" + N); } catch (_) {}
         setStatus("busy", N === 1 ? "Reading layer…" : "Reading layer… (batch of " + N + ")");
@@ -4802,18 +5032,9 @@
         setStatus("ok", "Preview ready — Accept to keep or Re-run.");
         try { console.log(TAG, "generate OK (preview)", reqId, "N=" + N); } catch (_) {}
       }
-      // v0.09 — success only (a throw skips to catch): add real USD spend.
-      // Cost = per-image rate (model × resolution) × images produced.
-      // Generate and Edit are EXCLUDED here — their cost is added per actual
-      // run (inside executeGenerate / executeEdit, and the Extend branch) so
-      // recall re-runs are billed too. Only Compose is costed here.
-      if (isCompose) {
-        try {
-          const __n = (cachedComposeOp === "fuse") ? 3 : N;
-          const __res = readPills("pills-resolution", defaultResFor(modelId));
-          addSessionCost(perImageCost(modelId, __res) * __n);
-        } catch (_) {}
-      }
+      // v0.09 — cost is added per ACTUAL run inside each execute (generate /
+      // edit / compose) and the Extend branch, so recall re-runs are billed
+      // too. Nothing to add here anymore.
     } catch (e) {
       try {
         const which = isCompose ? "compose FAIL" : (isEdit ? "edit FAIL" : "generate FAIL");

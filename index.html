@@ -892,6 +892,18 @@ code {
       </div>
       <div id="upscale-estimate" class="cost-estimate"></div>
       <div id="upscale-btn" class="btn-upscale disabled" role="button" tabindex="0" data-action="upscale-topaz">Upscale (Topaz)</div>
+
+      <!-- FOUNDATION — recall bar for the Upscale tab. The shared-form recall
+           bar is hidden on this tab, so Upscale gets its own (class-only, no
+           duplicate ids). showRecallBar/hideRecallBar toggle ALL .recall-bar. -->
+      <div class="recall-bar hidden">
+        <span class="recall-label">Preview ready — Accept to keep, Re-run to discard &amp; try again.</span>
+        <div class="recall-actions">
+          <div class="btn-primary"             role="button" tabindex="0" data-action="recall-accept">Accept</div>
+          <div class="btn-secondary recall-rerun" role="button" tabindex="0" data-action="recall-rerun">Re-run</div>
+        </div>
+      </div>
+
       <div id="upscale-status" class="status muted"></div>
     </section>
 
@@ -1082,7 +1094,7 @@ code {
         <span id="recall-label" class="recall-label">Preview ready — Accept to keep, Re-run to discard &amp; try again.</span>
         <div class="recall-actions">
           <div id="recall-accept" class="btn-primary"   role="button" tabindex="0" data-action="recall-accept">Accept</div>
-          <div id="recall-rerun"  class="btn-secondary" role="button" tabindex="0" data-action="recall-rerun">Re-run</div>
+          <div id="recall-rerun"  class="btn-secondary recall-rerun" role="button" tabindex="0" data-action="recall-rerun">Re-run</div>
         </div>
       </div>
 

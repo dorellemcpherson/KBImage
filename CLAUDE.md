@@ -61,9 +61,18 @@ both done and tested. See "Foundation layers" below.
   leave any mask/alpha target, then delete by `_id`. Fully guarded.
 - **Manifest unchanged** (`com.dorelle.kbimage`, v0.10.0).
 
+- **Foundation COMPLETE (2026-06-27):** EVERY Image operator now runs through
+  `runWithRecall` and writes the session log — generate, edit, **compose:refgen**,
+  **compose:fuse**, **compose:refinpaint**, **upscale:topaz**. Fuse uses the new
+  reusable **multi-option (pick-from-N)** path: 3 options placed, one record each
+  (`option/ofN`), Accept = keep the layer ACTIVE in the Layers panel + discard the
+  rest (kept → `committed:true`, others stay `false`). Upscale gets its own
+  `.recall-bar` on the Upscale tab (`showRecallBar`/`hideRecallBar` are class-based).
+  Cost is billed inside each `execute` (re-runs count). **Extend stays the only
+  intentional exception** (canvas mutation). Upscale caveat: re-run/discard leaves
+  the canvas enlarged (doesn't compound) — no canvas-restore hook.
+
 **NEXT STEP — open follow-ups (rough priority):**
-- Adopt the recall wrapper for **Compose** (3 ops) — same pattern, no contract change.
-- Adopt **Upscale** (Topaz) — likewise.
 - **Extend** is excluded from recall because it mutates the canvas (`canvasResize`);
   joining it needs discard to also restore canvas size. Revisit only if wanted.
 
