@@ -151,27 +151,27 @@ body {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: column;        /* icon on top, small label beneath */
   align-items: center;
   justify-content: center;
-  position: relative;            /* tooltip anchor */
-  height: 40px;
-  padding: 0;
-  color: var(--text-faint);
+  height: 52px;
+  padding: 6px 2px 7px;
+  color: var(--text-dim);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
   user-select: none;
   transition: color 0.14s, border-color 0.14s;
 }
-.opicon:hover { color: var(--text-dim); }
+.opicon:hover { color: var(--text); }
 .opicon.active {
   color: var(--mustard);
   border-bottom-color: var(--mustard);
 }
 .opicon:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; border-radius: 4px; }
 .opicon-svg {
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
   fill: none;
   stroke: currentColor;          /* inherits .opicon colour → mustard when active */
   stroke-width: 1.8;
@@ -179,9 +179,16 @@ body {
   stroke-linejoin: round;
   display: block;
 }
-/* Tooltip = the native `title` attribute on each .opicon (UXP renders it as a
-   small dark tag, host-positioned). The earlier CSS `.op-tip` pill was removed
-   — it dropped below the icon row and overlapped the cost counter. */
+/* Always-visible small label under each icon (replaces the hover tooltip —
+   less clutter, no popups, no native-title yellow). Colour inherits from
+   .opicon: dim normally, mustard when active. */
+.op-label {
+  margin-top: 3px;
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
 
 /* Header gear → opens Settings (v0.08.1 step 2). ~30px outline,
    --text-dim → --mustard on hover; mustard outline when active. */
@@ -763,20 +770,25 @@ code {
          A future Print tier adds a sibling <nav id="subnav-print" class="subnav
          hidden"> with its own icons. -->
     <nav class="subnav" id="subnav-image" role="tablist">
-      <div id="tab-generate" class="tab opicon" role="tab" tabindex="0" data-view="generate" title="Generate" aria-label="Generate">
+      <div id="tab-generate" class="tab opicon" role="tab" tabindex="0" data-view="generate" aria-label="Generate">
         <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.7 5.3 5.3 1.7-5.3 1.7L12 17.5l-1.7-5.3L5 10.5l5.3-1.7z"/><path d="M18.6 14.4l.65 1.95 1.95.65-1.95.65-.65 1.95-.65-1.95-1.95-.65 1.95-.65z"/></svg>
+        <span class="op-label">Generate</span>
       </div>
-      <div id="tab-select" class="tab opicon" role="tab" tabindex="0" data-view="select" title="Select" aria-label="Select">
+      <div id="tab-select" class="tab opicon" role="tab" tabindex="0" data-view="select" aria-label="Select">
         <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5" stroke-dasharray="3 2.5"/></svg>
+        <span class="op-label">Select</span>
       </div>
-      <div id="tab-edit" class="tab opicon" role="tab" tabindex="0" data-view="edit" title="Edit" aria-label="Edit">
+      <div id="tab-edit" class="tab opicon" role="tab" tabindex="0" data-view="edit" aria-label="Edit">
         <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l.85-3.6L15.3 6.0a1.7 1.7 0 0 1 2.4 0l.3.3a1.7 1.7 0 0 1 0 2.4L7.6 19.15z"/><path d="M14.2 7.1l2.7 2.7"/></svg>
+        <span class="op-label">Edit</span>
       </div>
-      <div id="tab-compose" class="tab opicon" role="tab" tabindex="0" data-view="compose" title="Compose" aria-label="Compose">
+      <div id="tab-compose" class="tab opicon" role="tab" tabindex="0" data-view="compose" aria-label="Compose">
         <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="11" height="11" rx="1.5"/><rect x="9" y="9" width="11" height="11" rx="1.5"/></svg>
+        <span class="op-label">Compose</span>
       </div>
-      <div id="tab-upscale" class="tab opicon" role="tab" tabindex="0" data-view="upscale" title="Upscale" aria-label="Upscale">
+      <div id="tab-upscale" class="tab opicon" role="tab" tabindex="0" data-view="upscale" aria-label="Upscale">
         <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-7 7"/><path d="M10 20H4v-6"/><path d="M4 20l7-7"/></svg>
+        <span class="op-label">Upscale</span>
       </div>
     </nav>
 
