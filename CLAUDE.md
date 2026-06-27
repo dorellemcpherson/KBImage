@@ -144,6 +144,32 @@ Everything below must survive any change:
   the safety refusal cleanly and steer figure/fashion edits to Nano Banana.
 - **Scrollable body** and the styled narrow-panel layout.
 
+### Select/Edit mask path — diagnosed state (2026-06-27)
+Traced end-to-end; no code changed. How the selection becomes a mask, per provider:
+- **Nano Banana (gemini):** the mask is **NOT sent to the generate call** (NB has no API
+  mask). `runEditPipeline` builds `maskSpec` (channel = shape-accurate, else rect,
+  `app.js:3771-3776`); `_useApiMask = (_provider === "openai" && !!maskSpec)`
+  (`app.js:3837`) is FALSE for NB, so `opts.maskSpec` is never set and
+  `generateImageGemini` sends only `contents` (instruction + composite + refs). The
+  selection becomes a **Photoshop layer mask** applied to the result client-side in
+  `placeBase64AsEditedLayer` (`app.js:2640-2667`, shape-accurate via
+  `loadSelectionFromChannel` → `addLayerMaskRevealSelection`). **Complete & working.**
+- **GPT Image 2 (openai):** the mask **IS wired through** to `images/edits` — NOT stubbed,
+  NOT dropped. Routing sets `opts.maskSpec` (the **bounding RECT**, not the shape) +
+  `opts.maskDoc` (`app.js:3838-3845`); the adapter builds an alpha PNG and
+  `fd.append("mask", maskBlob, "mask.png")` (`app.js:1396-1410`) then
+  `POST /v1/images/edits` (`app.js:1423-1428`). Mask builder is fully implemented
+  (`buildAlphaMaskBlob` 1100-1137 + hand-built-PNG fallback). **Two caveats:** (1) GPT's
+  API mask is **rect-only** (bounding box of the selection); the shape-accurate mask only
+  exists as the client-side PS layer mask. (2) Runtime dependency — throws
+  "FormData not available…" (`app.js:1369-1371`) if UXP lacks `FormData`; also needs
+  `Blob`/`canvas.toBlob`.
+- **GPT selected on a masked Select edit:** it **edits with the (rect) mask** — it does
+  NOT auto-route to Nano Banana. Dispatch is purely by `model.provider` (`app.js:682`);
+  there is **no figure/fashion detection or auto-switch** in code (the "Smart routing"
+  above is a MANUAL workflow rule). On a content refusal GPT **errors**, surfaced as a
+  clean "try Nano Banana" message; switching models is the user's manual step.
+
 ## Foundation layers (every future operator inherits these)
 
 Two shared layers underneath the studio. Built together. **Do not regress; new
