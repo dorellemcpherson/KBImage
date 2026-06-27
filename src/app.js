@@ -4125,7 +4125,18 @@
   }
 
   // Delete preview layer(s) by id — inside executeAsModal (UXP rule: all
-  // document mutation is modal). Fully guarded; a missing layer is harmless.
+  // document mutation is modal). Robust against the "Delete not currently
+  // available" alert: we never rely on ambient selection. For each id we
+  //   1) SELECT the layer explicitly by _id (NOTE the underscore — the bare
+  //      `target` key is ignored by Photoshop, which silently dropped the id
+  //      and made Delete act on whatever was ambiently active, the original
+  //      bug). The select also validates existence: a layer that's already
+  //      gone throws here → we catch and skip (missing = nothing to discard).
+  //   2) selectRGBChannel() to exit any layer-mask / alpha-channel target —
+  //      with a mask/alpha targeted, "Delete" reports "not currently
+  //      available" (documented; same fix as the temp-channel cleanup).
+  //   3) Delete that layer explicitly by _id.
+  // Every step is guarded; a missing/failed layer never throws out.
   async function deleteLayersById(ids) {
     if (!ids || !ids.length) return;
     const ps = psMod();
@@ -4134,12 +4145,36 @@
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
         if (id == null) continue;
+
+        // 1) Make the target layer the ACTIVE layer, explicitly by id.
         try {
           await ps.action.batchPlay(
-            [{ _obj: "delete", target: [{ _ref: "layer", _id: id }], _options: { dialogOptions: "dontDisplay" } }],
+            [{ _obj: "select",
+               _target: [{ _ref: "layer", _id: id }],
+               makeVisible: false,
+               _options: { dialogOptions: "dontDisplay" } }],
             { synchronousExecution: true }
           );
-        } catch (e) { try { console.warn(TAG, "deleteLayer", id, "failed:", e); } catch (_) {} }
+        } catch (e) {
+          try { console.warn(TAG, "deleteLayer: layer id", id, "not selectable (already gone?) — skipping:", e); } catch (_) {}
+          continue;   // layer no longer exists → nothing to delete
+        }
+
+        // 2) Exit any mask/alpha-channel target so a normal pixel layer (RGB)
+        //    is active; otherwise Delete reports "not currently available".
+        try { await selectRGBChannel(); } catch (_) {}
+
+        // 3) Delete that exact layer by id (never an ambiently-selected one).
+        try {
+          await ps.action.batchPlay(
+            [{ _obj: "delete",
+               _target: [{ _ref: "layer", _id: id }],
+               _options: { dialogOptions: "dontDisplay" } }],
+            { synchronousExecution: true }
+          );
+        } catch (e) {
+          try { console.warn(TAG, "deleteLayer: delete id", id, "failed:", e); } catch (_) {}
+        }
       }
     }, { commandName: "KBImage — discard preview" });
   }

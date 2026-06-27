@@ -2,37 +2,27 @@
 
 Read this entire file before writing or changing any code.
 
-## ⏸️ SESSION STATE / START HERE (last updated 2026-06-24)
+## ⏸️ SESSION STATE / START HERE (last updated 2026-06-27)
 
 **Where we stopped:** the two foundation layers — the **recall wrapper** and the
-**append-only session log** — are built and adopted by **Generate** and the
-**Select/Edit-tab edits**. Code is syntax/wiring-verified but **NOT yet tested
-inside Photoshop**. See the full spec in "Foundation layers" below.
+**append-only session log** — are built, adopted by **Generate** and the
+**Select/Edit-tab edits**, and **TESTED WORKING in Photoshop**. The re-run
+"Delete not currently available" bug is fixed. See "Foundation layers" below.
 
-- **Saved checkpoint:** git repo at this folder. Commit `774e6ee` on `master`,
-  tag `checkpoint-foundation-recall-log` (clean working tree). Recover with
-  `git checkout checkpoint-foundation-recall-log` or `git reset --hard 774e6ee`.
-  Tag is intentionally NOT `-working` (untested in PS).
-- **Files changed this session:** `src/app.js` (recall wrapper, session log,
-  `runEditPipeline` recall integration), `index.html` (recall bar + inlined CSS),
-  `CLAUDE.md`, `.gitignore`. Manifest unchanged (`com.dorelle.kbimage`, v0.10.0).
+- **Latest checkpoint (TESTED):** commit on `master`, tag
+  `v0.10-foundation-working` — recall wrapper + session log + the re-run delete
+  fix, confirmed in PS. Recover with `git checkout v0.10-foundation-working`.
+- **Earlier checkpoint:** commit `774e6ee`, tag `checkpoint-foundation-recall-log`
+  (pre-test, before the delete fix).
+- **The re-run delete fix (2026-06-27):** `deleteLayersById` used the bare key
+  `target:` instead of `_target:`, so Photoshop ignored the layer id and ran
+  Delete against the ambient (often mask/alpha-channel) target → "Delete not
+  currently available". Now per id: select the layer explicitly by `_target` `_id`
+  (also the existence guard — a gone layer throws → skip), `selectRGBChannel()` to
+  leave any mask/alpha target, then delete by `_id`. Fully guarded.
+- **Manifest unchanged** (`com.dorelle.kbimage`, v0.10.0).
 
-**NEXT STEP — verify in Photoshop before any new code (do this first):**
-1. UDT → **Remove** the KBImage plugin, then **Add Plugin** → `manifest.json` →
-   **Load** (a full Remove + Re-Add — Reload won't pick up the `app.js` changes).
-2. Open a document. **Generate:** prompt → Generate → a layer + the **recall bar**
-   appear. Re-run (tweak prompt) discards & regenerates; Accept clears the bar.
-3. **Edit:** Select tab → lasso a region → Replace + prompt → Apply → layer + bar.
-   Re-run must re-apply to the SAME selection (no re-selecting). Accept → the temp
-   `kb_sel_tmp` channel disappears from the Channels panel.
-4. **Extend** (Select tab) places directly with NO recall bar — that's by design.
-5. Console: `__kbimageLog` shows records (`op:"generate"` / `"edit:replace"`…),
-   re-run forks `committed:false`, accepted `committed:true`, `afterSnapshotRef`
-   is a file path (no image bytes). `__kbimageLogPath` = the JSONL file.
-6. If it renders & behaves → tag a `-working` checkpoint. If broken → the tag
-   above is the clean fallback.
-
-**THEN (open follow-ups, in rough priority):**
+**NEXT STEP — open follow-ups (rough priority):**
 - Adopt the recall wrapper for **Compose** (3 ops) — same pattern, no contract change.
 - Adopt **Upscale** (Topaz) — likewise.
 - **Extend** is excluded from recall because it mutates the canvas (`canvasResize`);
