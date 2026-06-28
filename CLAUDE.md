@@ -72,9 +72,38 @@ both done and tested. See "Foundation layers" below.
   intentional exception** (canvas mutation). Upscale caveat: re-run/discard leaves
   the canvas enlarged (doesn't compound) — no canvas-restore hook.
 
-**NEXT STEP — open follow-ups (rough priority):**
+**NEXT STEP — open follow-ups / roadmap (rough priority):**
+
+*Recall/foundation:*
 - **Extend** is excluded from recall because it mutates the canvas (`canvasResize`);
   joining it needs discard to also restore canvas size. Revisit only if wanted.
+- **Compose + Upscale wrap is DONE** (see "Foundation COMPLETE" above): Fuse =
+  pick-from-3 multi-option; Upscale canvas caveat noted. Listed here only so the prior
+  "next step" note isn't mistaken for outstanding — it's shipped in
+  `v0.11-recall-complete-working`.
+
+*New operators / ops (TODO — not built):*
+- **Outpaint / Expand** — a new **Compose** op (canvas-extend style; mind the same
+  canvas-mutation caveat as Extend when wrapping it in recall).
+- **Generative Fill is ALREADY BUILT** on the **Select** tab — do NOT rebuild it.
+
+*Deployment:*
+- **Admin-set authorship-log path** — the session-log file location must be
+  admin-configurable for deployment (the authorship gateway reads it). Today it's a
+  fixed per-session file in the plugin data folder (`kbimage-session-<sessionId>.jsonl`).
+
+*Colour Intelligence (Pantone snapping):*
+- **Pantone `.scl` libraries are provided.** First check whether `.scl` parses
+  **directly**; if not, convert to a **Lab/RGB + substrate** table BEFORE Colour
+  Intelligence can snap. The `.scl` snap is the **production source of truth** for colour.
+
+*Print tier (future top tab — nav already reserves the `Print` `.toptab` seam):*
+- **Print exports:** generate a **`.pat`** Photoshop pattern from a repeat tile; and
+  **motif → SVG** (Print "motif" actions only — vectorize / trace; **NO live Illustrator
+  bridge**).
+- **Print Recolour op** — reference pattern: **`NEURAL_ATELIER` Recolor-Pantone JSON**.
+  This is the model for Print's generative Recolour (generative = **approximate**); the
+  `.scl` snap above stays the production source of truth, not the generative result.
 
 ## What this is
 
