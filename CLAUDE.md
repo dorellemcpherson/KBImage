@@ -28,10 +28,26 @@ Full detail for every item is in the ROADMAP section below.
 
 ## ⏸️ SESSION STATE / START HERE (last updated 2026-06-28)
 
-**Where we stopped:** v0.12 engines wired (Flux.2 + Clarity), uncommitted-then-
-checkpointed as IN PROGRESS — NOT yet tested-working. The recall foundation
-(v0.11) below remains the last fully-tested state.
+**Where we stopped:** v0.13 under-res flag + doc-resolution readout TESTED WORKING.
+v0.12 engines (Flux.2 + Clarity) remain IN PROGRESS (Flux untested live). The recall
+foundation (v0.11) is the last fully-tested foundation state.
 
+- **v0.13 — under-res flagging + doc-resolution readout — TESTED WORKING**
+  (tag `v0.13-underres-flag-working`):
+  - **Doc-resolution readout** — persistent bar under the cost meter (`#doc-info-bar`):
+    `Document: W × H px`, refreshed on doc change + after every op + hydrate.
+  - **Under-res flag** — `updateDocInfo()`, CATCH-ON-ENTRY (events
+    open/close/make/select/paste/placeEvent/delete + after plugin ops): active layer's
+    pixel **bounds** vs doc dims; below project res (1% tol) → red `#under-res-flag`
+    line; at/above → hidden. INFORMATIONAL only (no inline conform — decided); the user
+    conforms via the **Upscale tab** (Active Layer → Topaz, the v0.12 non-destructive
+    path). All plain getters, no modal, guarded.
+  - **Known limit:** bounds test catches PLACED/GENERATED-small layers (the common
+    case), NOT a smart object internally scaled up (bounds read full-canvas).
+  - **NOT built:** batch conform (multi-layer at once, stack-order) — deferred; and the
+    pre-gen OUTPUT-size warning is a separate item (out of scope).
+  - v0.12 scope toggle (Composite/Active Layer) + non-destructive single-layer output
+    verified intact, not rebuilt.
 - **⚠️ v0.12 IN PROGRESS (checkpoint `v0.12-engines-checkpoint`, NOT `-working`):**
   Two direct first-party adapters added, **key-optional** (register + show in the
   dropdown/toggle without a key; keyless = clean "add key" message, no network call,

@@ -679,6 +679,19 @@ code {
 }
 .cost-reset:hover { color: var(--text-dim); text-decoration: underline; }
 
+/* ===== DOCUMENT INFO BAR (v0.13) — resolution readout + under-res flag ===== */
+.doc-info-bar {
+  padding: 6px var(--pad);
+  border-bottom: 1px solid var(--hairline);
+}
+.doc-resolution { font-size: 11px; color: var(--text-dim); }
+.under-res-flag {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--alert);          /* red — awareness, never a blocker */
+}
+
 /* Per-action estimate line (near Generate / Apply Edit / Upscale). */
 .cost-estimate {
   font-size: 11.5px; color: var(--text-faint);
@@ -800,6 +813,16 @@ code {
       <span id="session-reset" class="cost-reset" role="button" tabindex="0" data-action="reset-session" title="Reset session total">Reset</span>
       <span id="session-since" class="cost-since">since —</span>
       <span id="session-total" class="cost-total">$0.00</span>
+    </div>
+
+    <!-- =============== DOCUMENT INFO BAR (v0.13) =============== -->
+    <!-- Persistent doc-resolution readout (the reference the under-res flag
+         compares against) + the event-triggered under-res flag. The flag is
+         INFORMATIONAL ONLY (awareness, never a blocker) — the user conforms a
+         flagged layer via the Upscale tab (Active Layer → Topaz). -->
+    <div id="doc-info-bar" class="doc-info-bar">
+      <span id="doc-resolution" class="doc-resolution">Document: —</span>
+      <div id="under-res-flag" class="under-res-flag hidden"></div>
     </div>
 
     <!-- =============== TAB CONTENT AREA =============== -->

@@ -3913,6 +3913,7 @@
       setStatus("bad", (err && err.message) || "upscale failed");
     } finally {
       generateInFlight = false;
+      try { updateDocInfo(); } catch (_) {}   // v0.13 — refresh readout/flag after upscale
       refreshUpscaleEnabled();
     }
   }
@@ -4813,8 +4814,13 @@
       maybeRotateSession("notify").catch(function (e) {
         try { console.warn(TAG, "[session] notify rotate failed:", e); } catch (_) {}
       });
+      // v0.13 — refresh the doc-resolution readout + under-res flag on the SAME
+      // events (new layer arrives / active layer or document changes).
+      try { updateDocInfo(); } catch (_) {}
     };
-    const events = ["open", "close", "make", "select"];
+    // v0.13 — added paste/placeEvent/delete so the under-res flag catches a
+    // layer ON ENTRY (import/paste/AI place) and active-layer changes (select).
+    const events = ["open", "close", "make", "select", "paste", "placeEvent", "delete"];
     try {
       const ps = psMod();
       if (!ps.action || typeof ps.action.addNotificationListener !== "function") {
@@ -4829,6 +4835,58 @@
       try { console.log(TAG, "[session] doc-change listener registered."); } catch (_) {}
     } catch (e) {
       try { console.warn(TAG, "[session] listener registration failed; per-action backstop only:", e); } catch (_) {}
+    }
+  }
+
+  // v0.13 — DOCUMENT-RESOLUTION READOUT + UNDER-RES LAYER FLAG.
+  //
+  // Readout: the active document's pixel dimensions (the reference the flag
+  // compares against). Flag: the ACTIVE layer's real pixel resolution (its
+  // bounds — PS layers carry no per-layer DPI, so pixel-count is the measure)
+  // vs the document. Below project resolution → a red, INFORMATIONAL flag
+  // (awareness, never a blocker; the user conforms via the Upscale tab). All
+  // reads are plain property getters (no modal). Fully guarded.
+  //
+  // Known limitation (documented, not a bug): the bounds test catches a layer
+  // PLACED/GENERATED small (the common case, e.g. a 1K gen in a 2K doc). It does
+  // NOT detect a smart object internally scaled UP to fill the canvas (its
+  // bounds read full-canvas) — that would need the SO source size.
+  function updateDocInfo() {
+    const $res  = $("doc-resolution");
+    const $flag = $("under-res-flag");
+    let doc = null;
+    try { doc = psMod().app.activeDocument; } catch (_) { doc = null; }
+    if (!doc) {
+      if ($res)  $res.textContent = "Document: —";
+      if ($flag) $flag.classList.add("hidden");
+      return;
+    }
+    let dw = 0, dh = 0;
+    try { dw = Math.round(Number(doc.width)); dh = Math.round(Number(doc.height)); } catch (_) {}
+    if ($res) $res.textContent = "Document: " + dw + " × " + dh + " px";
+    if (!$flag) return;
+
+    let lw = 0, lh = 0;
+    try {
+      const layer = doc.activeLayers && doc.activeLayers[0];
+      if (layer && layer.bounds) {
+        const b = layer.bounds;
+        lw = Math.round(Number(b.right) - Number(b.left));
+        lh = Math.round(Number(b.bottom) - Number(b.top));
+      }
+    } catch (_) {}
+
+    // Flag when the active layer's pixels fall below project resolution in
+    // either dimension (1% tolerance so a ~full-canvas layer doesn't flag on
+    // rounding/crop). Empty/zero-bounds layers are skipped.
+    const below = (lw > 0 && lh > 0 && dw > 0 && dh > 0)
+      && (lw < Math.floor(dw * 0.99) || lh < Math.floor(dh * 0.99));
+    if (below) {
+      $flag.textContent = "⚠️ Active layer is " + lw + " × " + lh
+        + " in a " + dw + " × " + dh + " document — below project resolution.";
+      $flag.classList.remove("hidden");
+    } else {
+      $flag.classList.add("hidden");
     }
   }
 
@@ -5438,6 +5496,7 @@
       setStatus("bad", (e && e.message) || String(e));
     } finally {
       generateInFlight = false;
+      try { updateDocInfo(); } catch (_) {}   // v0.13 — refresh readout/flag after generate/edit/compose
       if (activeApiKey() && btn) btn.classList.remove("disabled");
     }
   }
@@ -5894,6 +5953,7 @@
       currentSessionDocId = (_d && typeof _d.id !== "undefined") ? _d.id : undefined;
     } catch (_) { currentSessionDocId = undefined; }
     registerDocChangeListener();
+    updateDocInfo();   // v0.13 — initial doc-resolution readout + under-res flag
 
     // Default tab: Generate if a key is saved, Settings otherwise.
     // v0.06 — open Generate if EITHER provider key is saved (Generate is
