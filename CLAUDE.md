@@ -2,17 +2,62 @@
 
 Read this entire file before writing or changing any code.
 
-## ⏸️ SESSION STATE / START HERE (last updated 2026-06-27)
+## 🔢 VERSIONING SCHEME + BUILD ORDER (the map — read before tagging anything)
 
-**Where we stopped:** the two foundation layers — the **recall wrapper** and the
-**append-only session log** — are built, adopted by **Generate** and the
-**Select/Edit-tab edits**, and **TESTED WORKING in Photoshop**. The re-run
-"Delete not currently available" bug AND the per-document session-scoping fix are
-both done and tested. See "Foundation layers" below.
+**Scheme: `major.minor.patch`.**
+- **Minor** (`0.11 → 0.12 → 0.13…`) = a named module / capability block — a real new feature set.
+- **Patch** (`0.12.0 → 0.12.1…`) = fixes, doc corrections, small UX tweaks, runtime confirms *within* that module.
+- The `-working` suffix stays as the **tested-checkpoint** marker on top of the number (e.g. `v0.12-working`).
+- This rule applies **going forward**; the older inconsistent `v0.10-*` tags are not renumbered.
 
-- **Latest checkpoint (TESTED):** commit on `master`, tag `v0.10-iconnav-labels-working`
-  — two-tier nav with icon + small always-visible label per operator. Recover with
-  `git checkout v0.10-iconnav-labels-working`.
+**Build order (each minor = the next thing to build):**
+- **v0.11** — recall foundation complete ✅ DONE/TAGGED (`v0.11-recall-complete-working`)
+- **v0.12** — engine adapter wire (**Flux.2 [pro] + [max] via BFL, Clarity Crystal via ClarityAI** — the two accessible Western first-party providers) + conditional negative-prompt field. **Wire KEY-OPTIONAL / no-keys:** each engine registers in `MODELS` and shows in the dropdown regardless of whether its key is set; a keyless engine is dormant — selecting it is fine, but generating surfaces a clean "add [provider] key in Settings" message and must NEVER throw or break the panel; no key = no network call. This decouples the build from account setup (the plumbing — registry, dropdown, conditional negative-prompt field, dispatch routing — is testable with zero keys; live confirms come per-engine as keys arrive). Existing Gemini/OpenAI/Topaz engines stay untouched. **PARKED — access-gated, NOT in v0.12:** Qwen (DashScope) and Seedream (BytePlus) — both Chinese-cloud, blocked by KYC/real-name verification + no personal-account path for a US user (no key obtainable). Wire them only if access terms open up. *(GPT mask verify + 3 doc fixes ride here as a `v0.12.x` patch. Smart Object output + pre-gen resolution warning fit here or in v0.13.)*
+- **v0.13** — upscaler upgrades (scope toggle, under-res flagging, non-destructive output — both Topaz + Clarity)
+- **v0.14** — Outpaint / Expand (born recall-wrapped) — *Compose op that inherits the fresh recall machinery, cheaper to build now*
+- **v0.15** — **Print module** (Recolour two-path engine + locks, operators side, exports: `.pat` + motif→SVG + separations)
+- **v0.16** — provenance system (output folder + reject-retain, generation history, two metadata scores + provenance export) — **⚠️ DISCUSSION-GATED: do NOT build until the scoring model + legal-export are talked through (with Dorelle, and likely legal). It's the layer that READS everything else, so everything else — including Print's deterministic human operations — must exist first for the human-authorship score to count honestly.**
+
+Reference-disable toggle attaches to whichever minor it's built alongside. Colour Intelligence
+(Pantone snap / substrate-shift) lands inside or after Print depending on the auto-snap decision.
+*(Order rationale: provenance is LAST — it's the layer that reads everything else, and it's
+discussion-gated, not straightforward build work. Print's deterministic human operations must
+exist before the human-authorship score can count them honestly. Outpaint sits ahead of Print
+because it inherits the recall wrapper directly.)*
+Full detail for every item is in the ROADMAP section below.
+
+## ⏸️ SESSION STATE / START HERE (last updated 2026-06-28)
+
+**Where we stopped:** v0.12 engines wired (Flux.2 + Clarity), uncommitted-then-
+checkpointed as IN PROGRESS — NOT yet tested-working. The recall foundation
+(v0.11) below remains the last fully-tested state.
+
+- **⚠️ v0.12 IN PROGRESS (checkpoint `v0.12-engines-checkpoint`, NOT `-working`):**
+  Two direct first-party adapters added, **key-optional** (register + show in the
+  dropdown/toggle without a key; keyless = clean "add key" message, no network call,
+  never throws). Gemini/OpenAI/Topaz untouched.
+  - **Flux.2 [pro] + [max]** — BFL, provider `bfl`, `x-key`, ASYNC (submit
+    `POST api.bfl.ai/v1/flux-2-{pro,max}` → poll `polling_url` → `result.sample`
+    temp URL). Sizes via width/height; **no negative prompt**. Cost = editable rate
+    estimate (real `cost` is in the submit response, logged not metered). **UNTESTED live.**
+  - **Clarity Crystal** — ClarityAI DIRECT, 2nd upscaler beside Topaz (Upscale-tab
+    provider toggle, default Topaz; `creativity` default 0). `POST
+    api-upscale.clarityai.co`, `Bearer ap_…`, image sent as a **data URI**
+    (confirmed working — do NOT change). Live 200 returned but the result URL is in
+    **`message`** (ends in `<hash>.png`) — adapter now regex-extracts it + polls the
+    result URL until image bytes arrive (sync/async-safe, no webhooks). Cost from the
+    **credit field × $0.01** (not `cost_usd`; `balance` is remaining, not the charge).
+    **PENDING:** paste the full `clarity raw response:` console log to lock the exact
+    result + cost field names (drop the regex/guess fallbacks).
+  - **Negative-prompt field** — conditional mechanism built but **DORMANT**: hidden
+    for every v0.12 engine (none support it); lights up only for a future model
+    flagged `supportsNegativePrompt`.
+  - Manifest adds `api.bfl.ai`/`*.bfl.ai` + `api-upscale.clarityai.co`/`*.clarityai.co`.
+- **Latest TESTED checkpoint:** tag `v0.11-recall-complete-working` — Compose
+  (RefGen / Fuse pick-from-N / RefInpaint) + Upscale (Topaz) all wrapped in
+  `runWithRecall`; every Image operator now logs (Extend the one exception). Recover with
+  `git checkout v0.11-recall-complete-working`. See "Foundation COMPLETE" below.
+  (Prior UI checkpoint: `v0.10-iconnav-labels-working` — two-tier nav with icon + label.)
 - **Prior tested UI checkpoints:** `v0.10-topnav-working` (the nav restructure, when it
   still used tooltips), `v0.10-ui-dropdowns-working` (Fit Canvas + dropdowns).
 - **Top nav restructure (2026-06-27):** the 5 text tabs overflowed the panel width, so
@@ -72,38 +117,167 @@ both done and tested. See "Foundation layers" below.
   intentional exception** (canvas mutation). Upscale caveat: re-run/discard leaves
   the canvas enlarged (doesn't compound) — no canvas-restore hook.
 
-**NEXT STEP — open follow-ups / roadmap (rough priority):**
+## ROADMAP — deferred / coming-soon (THE FULL PICTURE)
 
-*Recall/foundation:*
-- **Extend** is excluded from recall because it mutates the canvas (`canvasResize`);
-  joining it needs discard to also restore canvas size. Revisit only if wanted.
-- **Compose + Upscale wrap is DONE** (see "Foundation COMPLETE" above): Fuse =
-  pick-from-3 multi-option; Upscale canvas caveat noted. Listed here only so the prior
-  "next step" note isn't mistaken for outstanding — it's shipped in
-  `v0.11-recall-complete-working`.
+Everything forward-looking, consolidated here so this is the single source of truth
+(it was previously fragmented across these build notes and the deck). Core ships
+first; everything below is deferred/upgrade. Build order is the queue at the top.
 
-*New operators / ops (TODO — not built):*
-- **Outpaint / Expand** — a new **Compose** op (canvas-extend style; mind the same
-  canvas-mutation caveat as Extend when wrapping it in recall).
-- **Generative Fill is ALREADY BUILT** on the **Select** tab — do NOT rebuild it.
+### Build queue (before Print)
 
-*Deployment:*
-- **Admin-set authorship-log path** — the session-log file location must be
-  admin-configurable for deployment (the authorship gateway reads it). Today it's a
-  fixed per-session file in the plugin data folder (`kbimage-session-<sessionId>.jsonl`).
+**1. Wire the accessible new first-party adapters — one build.** Same pattern as the
+existing Gemini/OpenAI/Topaz adapters: own key field in Settings + `MODELS` registry
+entry + provider dispatch branch + per-run cost line, each.
+- **Flux.2 [pro]** + **Flux.2 [max]** — Black Forest Labs (BFL), direct.
+- **Clarity Crystal** — ClarityAI.co, direct — a **SECOND upscaler** alongside Topaz
+  (not a generate engine); expose `creativity`, default **0** (fidelity / no invented detail).
+- **PARKED — access-gated, NOT wired in v0.12:** **Qwen Image** (Alibaba DashScope) and
+  **Seedream 4.5** (ByteDance BytePlus). Both are Chinese-cloud and blocked at onboarding —
+  KYC / real-name verification (DashScope needs a Chinese phone number; BytePlus runs its own
+  real-name registration) with no usable personal-account path for a US user, so no key is
+  obtainable today. The wall is identity/KYC + business-account-default, not a hard ban. Wire
+  them only if the access terms open up. (BFL + ClarityAI are the two accessible Western
+  first-party providers — that's what v0.12 ships.)
+- **NO aggregators.** Fal/Replicate rejected on principle: a middleman breaks true
+  per-run cost AND moves generations into its own logs — killing the two things the tool
+  exists for (spend truth + authorship visibility). Aggregator only ever justified for a
+  model with NO first-party API (deliberate exception).
+- **Negative-prompt field = conditional UI** driven by model selection, same pattern as
+  the aspect pill reshaping on model change (`onModelChanged`): shows only for engines
+  that support it (**Flux** now; Qwen/Seedream if ever wired), hidden for Nano Banana + GPT Image.
+  Anti-hallucination lever (no extra lace/limbs/trim).
+- Content policies differ: BFL light. (Qwen/Seedream Chinese-cloud filters, uneven on skin —
+  noted for if they're ever wired.) Needs a key per provider + a live endpoint-shape confirm before spend.
 
-*Colour Intelligence (Pantone snapping):*
-- **Pantone `.scl` libraries are provided.** First check whether `.scl` parses
-  **directly**; if not, convert to a **Lab/RGB + substrate** table BEFORE Colour
-  Intelligence can snap. The `.scl` snap is the **production source of truth** for colour.
+**2. Upscaler upgrades (Topaz + Clarity, both):**
+- **(a) Scope toggle** — active **layer** vs **whole image** (whole = a non-destructive
+  merged duplicate of visible layers; never flatten the live doc).
+- **(b) Under-res layer flagging** — scan the stack, compare each layer's real pixel
+  bounds vs its canvas footprint at doc resolution (PS layers carry no per-layer DPI —
+  use pixel-count-vs-footprint), flag layers BELOW project resolution (at/above = leave
+  off), lift flagged to MATCH project resolution (conform-to-spec; targeting is
+  arithmetic, only the upscale is AI); batch-select all or pick.
+- **(c) Non-destructive output** — upscale ALWAYS outputs to a NEW layer, original
+  preserved; single result placed directly ABOVE its source at the same stack position;
+  batch keeps stack order.
 
-*Print tier (future top tab — nav already reserves the `Print` `.toptab` seam):*
-- **Print exports:** generate a **`.pat`** Photoshop pattern from a repeat tile; and
-  **motif → SVG** (Print "motif" actions only — vectorize / trace; **NO live Illustrator
-  bridge**).
-- **Print Recolour op** — reference pattern: **`NEURAL_ATELIER` Recolor-Pantone JSON**.
-  This is the model for Print's generative Recolour (generative = **approximate**); the
-  `.scl` snap above stays the production source of truth, not the generative result.
+**3. GPT Image mask — runtime verify + doc fixes** (the diagnosed state is below in
+"Real feature state"; verify `images.edit`-with-mask actually runs in PS — depends on
+`FormData`/`Blob` in the UXP runtime; one live confirm pending).
+
+**4. Outpaint / Expand** — a new **Compose** op (canvas-extend style; mind the same
+canvas-mutation caveat as Extend when wrapping in recall; born recall-wrapped).
+(Generative Fill is ALREADY BUILT on the Select tab — do NOT rebuild.)
+
+**THEN the Print tier.**
+
+### UX / output adds (AI Lab / Picture Instruments competitive audit — APPROVED)
+- **Smart Object output** — generations land as an embedded Smart Object + editable mask
+  (re-editable, non-destructive) instead of flat raster+mask. Fits the non-destructive
+  thesis and the "always output to a new layer" rule.
+- **Pre-gen resolution warning** — before generating, an indicator warns if the chosen
+  model output vs the target area is too big (wastes spend) or too small (blurry); turns
+  orange = adjust model/selection first. Distinct from under-res LAYER flagging (2b): this
+  guards the chosen OUTPUT before the run.
+- **Reference disable toggle** — keep a reference loaded but exclude it from the send (no delete).
+- **SKIP:** in-panel selection brush/box — KBImage uses PS-native selection, which is more
+  capable (a strength, not a gap). *Optional/unconfirmed:* reference disk-persistence +
+  reload across sessions; prompt-history recall (cheap — the session log already stores prompts).
+
+### Provenance system (APPROVED)
+- **Output folder + reject-retain** — an admin-set output folder at install (next to the
+  authorship-log path; same provenance system; ComfyUI input/output parallel). EVERY
+  generation writes to the folder at creation; **accept** also places it into the project;
+  **re-run writes-but-doesn't-place — NO delete** (revises the current re-run-deletes-the-layer
+  behavior: the render is already on disk, re-run just declines to place). Folder holds the
+  bytes, the session log holds the meaning; the image is tagged + matched back to the log.
+- **Generation history** — a per-document browsable view of the log (kept-vs-rejected counts
+  as a behavior mirror, e.g. "25 made, 3 kept, 22 rejected, same prompt"); rejects shown as
+  thumbnails to keep size sane (the log stores file-path refs, not inline bytes).
+- **Spend — instrument first, NO hard cap.** A hard cap caps creativity (trips mid-explore
+  on the best run); the meter is visibility, a cap is control — keep visibility, refuse the
+  in-loop ceiling. Characterize real session cost from the logs FIRST, then soft signals only
+  (running total + "heavier than usual" nudge). Any true ceiling is admin/org-level only,
+  never imposed on the artist mid-flow.
+- **Two provenance scores → file metadata** (passive support, NON-determinant, for LEGAL
+  not the designer): (1) **human-authorship** — how much is the designer's, computed from
+  logged accepts/edits/inpaints/masks/deterministic ops vs the generation base (affirmative
+  copyrightability evidence); (2) **reference-derivation risk** — how close the output stayed
+  to an imported copyrighted reference (transformation/distance) — a **RISK FLAG, never a
+  clearance**; the tool must never imply legal safety. Both locked in file metadata, surfaced
+  only on a dispute; the designer keeps duty of care.
+- **Provenance export** — a per-file readout of the two scores + the decision trail, readable
+  without opening PS. Export + scoring are ONE system; legal (a human), not the tool, reads it
+  at review and determines.
+- **Refusal fallback — CLOSED, stays MANUAL.** No auto-switch on a content refusal: the model
+  is the designer's choice, and an auto-retry would spend on an engine they didn't pick and
+  change the look. The clean "try Nano Banana" error is enough; the user switches by hand.
+
+### Print tier (future top tab — nav reserves the `Print` `.toptab` seam)
+An **operators** side and an **exports** side.
+- **Operators:** repeat (half-drop/full/brick/mirror/seamless), reduce colours, separate
+  (one layer/colour), **Recolour**, extract motif, **grid/engineered layouts** (placement
+  prints for a garment area, beyond all-over repeat), **line-art modifier** (clean/convert
+  artwork into production-ready line work).
+  - **Recolour operator = DETERMINISTIC remix, NOT AI** (corrected — this is the operator,
+    not the generative pattern below): a reduced indexed image, colours assigned per index,
+    **constrained permutation** across regions, with **region-pinned locks** (locked regions
+    drop out of the pool; only unlocked colours redistribute among unlocked positions).
+    Deterministic, instant, free — sits with the tiler + extractor on the arithmetic side.
+    - **TWO ENTRY PATHS into the same remix engine** (the artist's choice once artwork is
+      ready for recolor):
+      1. **`.ase` path** — the artist loads a pre-built palette as an `.ase` file (client
+         colours / trend pack / existing colorway). The file *is* the palette — no library
+         chooser; colours come in ready and get assigned.
+      2. **Pick-Pantone path** — no pre-made file. The artist chooses **fabric first**, which
+         loads that fabric's **single** Pantone library (cotton → TCX, nylon → TN, polyester →
+         TSX, metallic → TPM, etc.), then picks a Pantone per index **from that one book**.
+    - **ONE library per recolor, chosen by fabric — NO cross-pack mixing.** This keeps the
+      production guarantee ("the whole colorway is achievable on this fabric") and makes the
+      later substrate-shift logic honest, because the library *is* the fabric. Library
+      selection only appears on the pick-Pantone path.
+    - Palette/library inputs come in as **`.ase`** (universal, parseable — Pantone Connect
+      exports or converted). Do NOT depend on `.scl` (program-specific, not a free standard —
+      see Colour). `.ase`/`.aco` parse directly.
+    - **MUST TEST AT BUILD:** both entry paths, and fabric-driven single-library selection on
+      the pick-Pantone path.
+- **Exports:** `.pat` Photoshop pattern from the repeat tile; **motif → SVG** (Print "motif"
+  actions only — vectorize/trace; **NO live Illustrator bridge**); production separations / mill files.
+
+### Colour Intelligence (the textile wedge)
+- **Pantone mill-safe mapping** — snap reduced colours to real dyes; **substrate-shift
+  prediction** (cotton vs nylon vs polyester); **out-of-gamut flagging** before the mill.
+  The dye-library snap is the production source of truth for colour.
+- **Pantone libraries provided as `.scl`** (Pantone proprietary). `.ase`/`.aco` parse
+  directly; `.scl` would need conversion to a Lab/RGB + substrate table first. **NOTE /
+  OPEN:** the Recolour operator's "user MUST pick the Pantone" ruling removes the auto-snap
+  *search*, so `.scl` conversion is NOT required for deterministic remix. It is only needed
+  if Colour Intelligence keeps a separate **auto-snap** path (reduce → nearest real dye).
+  Substrate values can also come from **Pantone Connect `.ase` exports** instead of the
+  proprietary `.scl`. Decide whether the auto-snap path survives before doing any `.scl` work.
+- **NEURAL_ATELIER recolor JSON** (`NA_Recolor` node — single-target Pantone repaint via Nano
+  Banana + SeedVR2 upscale) = a **SEPARATE generative escape hatch** for the un-indexed case
+  only, and the reference recipe for the FUTURE **"Recolor garment"** AI feature. Generative =
+  approximate — it is NOT the deterministic Recolour operator and NOT the colour source of truth.
+
+### Preview (deck "Coming Soon")
+- **Visualize on a garment** — see the print on a body before export.
+- **Variation batches** — generate a set under your controls, pick one.
+- **Fabric-width repeat** — tie the repeat to the actual bolt width.
+
+### Engine
+- **Flux (BFL)** — currently future-only in the wired build (see "Real feature state":
+  Flux is NOT wired in yet). It becomes live as part of the 5-adapter wire above; until that
+  build lands, the "Flux NOT wired in" rule below stays in force.
+
+### Deployment-gated (pre-ship requirements, not features)
+- **Admin-configurable authorship-log path** — the session-log location must be admin-set for
+  deployment (the authorship gateway reads it). Today it's a fixed per-session file in the
+  plugin data folder (`kbimage-session-<sessionId>.jsonl`).
+- **Admin-configurable output folder** — the provenance output folder (above), set at install,
+  next to the log path.
+- **Pantone `.scl` parsing/conversion** — prerequisite ONLY for a Colour Intelligence auto-snap
+  path, if that path is retained (see Colour note above).
 
 ## What this is
 

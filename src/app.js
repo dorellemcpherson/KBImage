@@ -144,6 +144,18 @@
               cachedUpscaleFactor = n;
               try { console.log(TAG, "upscale-factor →", cachedUpscaleFactor + "x"); } catch (_) {}
             }
+          } else if (group.id === "pills-upscale-provider") {
+            if (value === "topaz" || value === "clarity") {
+              cachedUpscaleProvider = value;
+              try { console.log(TAG, "upscale-provider →", cachedUpscaleProvider); } catch (_) {}
+              refreshUpscaleEnabled();   // toggles key-gate + Clarity creativity field
+            }
+          } else if (group.id === "pills-clarity-creativity") {
+            const c = Number(value);
+            if (isFinite(c)) {
+              cachedClarityCreativity = Math.max(0, Math.min(1, c));
+              try { console.log(TAG, "clarity-creativity →", cachedClarityCreativity); } catch (_) {}
+            }
           }
           // v0.09 — any pill change (model / resolution / quantity / factor /
           // source / compose-op) can move the estimate. Refresh it.
@@ -315,6 +327,28 @@
     } catch (_) { return ""; }
   }
 
+  // v0.12 — fourth adapter (Black Forest Labs / Flux.2). Generation provider,
+  // own key, `x-key` header. Independent of the others.
+  const BFL_KEY_NAME = "kbanana.bflApiKey";
+  async function saveBflKey(k) { await ssget().setItem(BFL_KEY_NAME, strToBytes(k)); }
+  async function loadBflKey() {
+    try {
+      const b = await ssget().getItem(BFL_KEY_NAME);
+      return b ? bytesToStr(b) : "";
+    } catch (_) { return ""; }
+  }
+  // v0.12 — Clarity (ClarityAI.co) upscaler key. SCAFFOLD ONLY: clarityai.co has
+  // no public first-party API endpoint to call (see upscaleViaClarity stub), so
+  // this key is stored/ready but unused until a documented direct endpoint exists.
+  const CLARITY_KEY_NAME = "kbanana.clarityApiKey";
+  async function saveClarityKey(k) { await ssget().setItem(CLARITY_KEY_NAME, strToBytes(k)); }
+  async function loadClarityKey() {
+    try {
+      const b = await ssget().getItem(CLARITY_KEY_NAME);
+      return b ? bytesToStr(b) : "";
+    } catch (_) { return ""; }
+  }
+
   // ----- model registry -----
   // Each entry FULLY defines its own option sets. Resolution + Aspect pills
   // in the UI are rebuilt from these arrays whenever the model changes.
@@ -364,6 +398,30 @@
       // ≤ 3:1; drop only the >3:1 extremes (8:1, 1:8, 4:1, 1:4).
       aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"],
       maxRefImages: 16,
+    },
+    // v0.12 — Black Forest Labs FLUX.2. Provider "bfl", ASYNC (submit→poll).
+    // FLUX.2 controls size via width/height (NOT aspect_ratio) and has NO
+    // negative_prompt — so NO negative-prompt field for Flux. The conditional
+    // negative-prompt mechanism stays dormant; it lights up only for a future
+    // engine that sets `supportsNegativePrompt: true`. Output ~4MP cap →
+    // resolutions stop at 2K. Up to 8 reference images.
+    "flux-2-pro": {
+      id: "flux-2-pro",
+      displayName: "Flux.2 Pro",
+      provider:    "bfl",
+      bflPath:     "/v1/flux-2-pro",
+      resolutions:  ["1K", "2K"],
+      aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
+      maxRefImages: 8,
+    },
+    "flux-2-max": {
+      id: "flux-2-max",
+      displayName: "Flux.2 Max",
+      provider:    "bfl",
+      bflPath:     "/v1/flux-2-max",
+      resolutions:  ["1K", "2K"],
+      aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
+      maxRefImages: 8,
     },
   };
   function defaultResFor(modelId)    { const m = MODELS[modelId]; return (m && (m.resolutions.indexOf("2K") >= 0 ? "2K" : m.resolutions[0])) || "2K"; }
@@ -680,6 +738,7 @@
     const model = MODELS[modelId];
     const provider = (model && model.provider) || "gemini";
     if (provider === "openai") return generateImageOpenAI(apiKey, opts);
+    if (provider === "bfl")    return generateImageFlux(apiKey, opts);
     return generateImageGemini(apiKey, opts);
   }
 
@@ -1468,6 +1527,236 @@
       return { base64: arrayBufferToBase64(buf), mime: "image/png" };
     }
     throw new Error("OpenAI: response has neither b64_json nor url");
+  }
+
+  // =======================================================================
+  // FLUX.2 — fourth adapter (Black Forest Labs / BFL). v0.12.
+  //
+  // FIRST ASYNC generation adapter: submit → poll `polling_url` until
+  // status "Ready" → `result.sample` is a TEMPORARY signed URL (delivery-*.bfl.ai,
+  // ~10 min) → fetch bytes → base64. Auth header: `x-key`. FLUX.2 sizes via
+  // width/height (NOT aspect_ratio) and has NO negative_prompt field — the
+  // optional negative prompt is folded into the prompt text.
+  //
+  // ⚠️ VERIFY exact shapes against live docs before spending (printed in the
+  // build report). Endpoints:
+  //   POST https://api.bfl.ai/v1/flux-2-pro   (and /v1/flux-2-max)
+  //     headers { x-key, Content-Type: application/json }
+  //     body { prompt, width, height, seed?, output_format:"png",
+  //            safety_tolerance:2, input_image?, input_image_2..8? }
+  //     → { id, polling_url, cost, output_mp }
+  //   GET <polling_url> (x-key) → { status:"Pending"|"Ready"|"Error", result:{ sample } }
+  // =======================================================================
+  const BFL_HOST       = "https://api.bfl.ai";
+  const BFL_POLL_MS    = 1500;
+  const BFL_TIMEOUT_MS = 180000;
+  const BFL_MAX_MP     = 4 * 1024 * 1024;   // FLUX.2 caps ~4MP output
+
+  function bflAuthHeaders(apiKey) {
+    return { "x-key": apiKey, "Content-Type": "application/json", "Accept": "application/json" };
+  }
+  // No free verify endpoint exists (a real submit costs money), so the Test
+  // button only confirms the key is stored. Live confirm = first generate.
+  async function testConnectionFlux(apiKey) {
+    if (!apiKey) return { ok: false, message: "empty key" };
+    return { ok: true, message: "saved — generate to verify (no free test endpoint)" };
+  }
+
+  // Map the neutral request (resolution + aspect) → explicit width/height
+  // (multiples of 16), capped to ~4MP. FLUX.2 has no aspect_ratio param.
+  function fluxDimsFromOpts(opts) {
+    const res = opts.imageSize || "1K";
+    const longEdge = (res === "2K" || res === "4K") ? 1536 : 1024;
+    let ar = 1;   // width / height
+    const aspect = opts.aspectRatio;
+    if (aspect && aspect !== MATCH_INPUT && aspect !== FIT_CANVAS) {
+      const p = parseAspectLabel(aspect);
+      if (p && p.v) ar = p.v;
+    } else if (opts.sourceWidth && opts.sourceHeight) {
+      ar = opts.sourceWidth / opts.sourceHeight;   // Match Input / Fit Canvas
+    }
+    let w, h;
+    if (ar >= 1) { w = longEdge; h = Math.round(longEdge / ar); }
+    else         { h = longEdge; w = Math.round(longEdge * ar); }
+    const round16 = function (n) { return Math.max(64, Math.round(n / 16) * 16); };
+    w = round16(w); h = round16(h);
+    if (w * h > BFL_MAX_MP) {
+      const s = Math.sqrt(BFL_MAX_MP / (w * h));
+      w = round16(w * s); h = round16(h * s);
+    }
+    return { width: w, height: h };
+  }
+
+  async function generateImageFlux(apiKey, opts) {
+    if (!apiKey) throw new Error("Missing Black Forest Labs API key.");
+    if (!opts || !opts.prompt || !opts.prompt.trim()) throw new Error("Prompt is required.");
+    const modelId = opts.modelId || "flux-2-pro";
+    const model = MODELS[modelId] || MODELS["flux-2-pro"];
+    const path = (model && model.bflPath) || "/v1/flux-2-pro";
+
+    // FLUX.2 has no negative_prompt field — there is no negative prompt for Flux.
+    const dims = fluxDimsFromOpts(opts);
+    const body = {
+      prompt: opts.prompt.trim(),
+      width: dims.width,
+      height: dims.height,
+      output_format: "png",
+      safety_tolerance: 2,
+    };
+    if (opts.seed != null && isFinite(Number(opts.seed))) body.seed = Number(opts.seed);
+    // source (edit) + references → input_image, input_image_2..8 (base64).
+    const imgs = [];
+    if (opts.sourceImage && opts.sourceImage.base64) imgs.push(opts.sourceImage.base64);
+    const refs = opts.refImages || [];
+    for (let i = 0; i < refs.length; i++) if (refs[i] && refs[i].base64) imgs.push(refs[i].base64);
+    for (let i = 0; i < imgs.length && i < 8; i++) {
+      body[i === 0 ? "input_image" : ("input_image_" + (i + 1))] = imgs[i];
+    }
+
+    try { console.log(TAG, "flux submit:", "model=" + modelId, "path=" + path,
+      dims.width + "x" + dims.height, "imgs=" + imgs.length); } catch (_) {}
+
+    const submitRes = await fetch(BFL_HOST + path, {
+      method: "POST", headers: bflAuthHeaders(apiKey), body: JSON.stringify(body),
+    });
+    if (!submitRes.ok) {
+      const t = await safeText(submitRes);
+      throw new Error("Flux submit " + submitRes.status + ": " + shortErr(t));
+    }
+    const submit = await submitRes.json();
+    const pollUrl = submit && submit.polling_url;
+    if (!pollUrl) throw new Error("Flux: no polling_url in submit response.");
+    try { if (submit.cost != null) console.log(TAG, "flux reported cost:", submit.cost, "output_mp:", submit.output_mp); } catch (_) {}
+
+    // Poll the returned polling_url verbatim until Ready (region may differ).
+    const t0 = Date.now();
+    let sampleUrl = null;
+    while (Date.now() - t0 < BFL_TIMEOUT_MS) {
+      await new Promise(function (r) { setTimeout(r, BFL_POLL_MS); });
+      let stRes;
+      try { stRes = await fetch(pollUrl, { method: "GET", headers: bflAuthHeaders(apiKey) }); }
+      catch (e) { continue; }
+      if (!stRes.ok) continue;
+      let st; try { st = await stRes.json(); } catch (_) { continue; }
+      const status = (st && st.status) || "";
+      if (status === "Ready") { sampleUrl = st.result && st.result.sample; break; }
+      if (status === "Error" || status === "Failed" || /moder/i.test(status)) {
+        throw new Error("Flux: " + status + (st.result ? (" — " + JSON.stringify(st.result)) : ""));
+      }
+      // "Pending" / "Queued" / "Task not found" (briefly) → keep polling.
+    }
+    if (!sampleUrl) throw new Error("Flux: timed out waiting for result.");
+
+    // Fetch the temporary signed result image (delivery-*.bfl.ai) → base64.
+    const imgRes = await fetch(sampleUrl, { method: "GET" });
+    if (!imgRes.ok) throw new Error("Flux: result fetch failed (" + imgRes.status + ").");
+    const buf = await imgRes.arrayBuffer();
+    return { base64: bytesToBase64(buf), mime: "image/png" };
+  }
+
+  // =======================================================================
+  // CLARITY CRYSTAL (ClarityAI) — second upscaler adapter. v0.12. DIRECT.
+  //
+  // Confirmed first-party (key provisioned for KBImage):
+  //   POST https://api-upscale.clarityai.co
+  //   headers { Authorization: Bearer ap_…, Content-Type: application/json }
+  //   body { mode:"crystal", image:"<URL>", scale_factor, creativity, output_format:"png" }
+  //   → response returns the result image URL directly + cost_usd + credit_cost
+  //     (1 credit = $0.01). No webhooks.
+  //
+  // ⚠️ IMAGE-AS-URL (flagged for verification): the API wants `image` as a URL it
+  // fetches, but our pixels are local PS layers with no public host. This adapter
+  // sends a **data: URI** (`data:image/png;base64,…`) built from the source pixels.
+  // If the endpoint REQUIRES a fetchable http(s) URL and rejects data URIs, we
+  // need a hosting step (none available without an aggregator) — confirm against
+  // a live call. Cost uses the RETURNED `cost_usd` (never an estimate).
+  // =======================================================================
+  const CLARITY_HOST = "https://api-upscale.clarityai.co";
+  function clarityAuthHeaders(apiKey) {
+    return { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json", "Accept": "application/json" };
+  }
+  async function testConnectionClarity(apiKey) {
+    if (!apiKey) return { ok: false, message: "empty key" };
+    // No documented free verify endpoint — confirm on first upscale.
+    return { ok: true, message: "saved — upscale to verify" };
+  }
+  // Returns { bytes, mime, width, height, costUsd } to match the Topaz shape so
+  // placeUpscaleResultAsLayer works unchanged.
+  async function upscaleViaClarity(apiKey, sourceImage, opts) {
+    if (!apiKey) throw new Error("Missing ClarityAI API key.");
+    if (!sourceImage || !sourceImage.base64) throw new Error("No source pixels for Clarity upscale.");
+    const factor = (opts && opts.factor === 4) ? 4 : 2;
+    const creativity = (opts && isFinite(Number(opts.creativity))) ? Number(opts.creativity) : 0;
+    const dataUri = "data:" + (sourceImage.mime || "image/png") + ";base64," + sourceImage.base64;
+    const body = {
+      mode: "crystal",
+      image: dataUri,                 // ⚠️ data URI — see header note
+      scale_factor: factor,
+      creativity: creativity,
+      output_format: "png",
+    };
+    if (opts && typeof opts.onStatus === "function") opts.onStatus("submitting to Clarity…");
+    const res = await fetch(CLARITY_HOST, {
+      method: "POST", headers: clarityAuthHeaders(apiKey), body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await safeText(res);
+      throw new Error("Clarity " + res.status + ": " + shortErr(t));
+    }
+    const j = await res.json();
+    // FULL raw response logged so the live structure is visible (sync vs async,
+    // exact field names) — confirmed via live test: the result image URL lives in
+    // `message` (it ends in <hash>.png; may be preceded by "Starting prediction /
+    // Fixed seed…" log text), so pull the image URL out of it by regex.
+    try { console.log(TAG, "clarity raw response:", JSON.stringify(j)); } catch (_) {}
+
+    const IMG_RX = /https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp)/i;
+    let url = null;
+    if (typeof j.message === "string") { const m = j.message.match(IMG_RX); if (m) url = m[0]; }
+    if (!url) { const m = JSON.stringify(j).match(IMG_RX); if (m) url = m[0]; }   // whole-body fallback
+    if (!url) url = j.image || j.url || j.output || j.result || j.result_url || null;   // explicit-field fallback
+    if (!url) {
+      throw new Error("Clarity: 200 but no image URL found — raw logged to console. "
+        + "If this is an async job-start, we need the poll URL/status field. Body: " + shortErr(JSON.stringify(j)));
+    }
+
+    // Cost: prefer an explicit USD field, else credits × $0.01 (1 credit = $0.01).
+    // `balance` is the REMAINING balance, not the charge — don't use it for cost.
+    let costUsd = 0;
+    if      (j.cost_usd    != null) costUsd = Number(j.cost_usd);
+    else if (j.credit_cost != null) costUsd = Number(j.credit_cost) * 0.01;
+    else if (j.credits     != null) costUsd = Number(j.credits)     * 0.01;
+    else if (j.credit      != null) costUsd = Number(j.credit)      * 0.01;
+    try { console.log(TAG, "clarity url:", String(url).slice(0, 96), "| costUsd=" + costUsd, "| balance=" + j.balance); } catch (_) {}
+    // Sync vs async: the result URL is returned inline, but "Starting prediction"
+    // means the image at that URL may not be ready the instant we POST. Instead of
+    // guessing a separate poll endpoint, we POLL THE RESULT URL itself — retry the
+    // GET until it returns image bytes (covers sync AND async-with-result-URL).
+    // Webhooks stay OFF. If the raw log later shows a real job-id/status, we can
+    // swap to a proper status poll.
+    if (opts && typeof opts.onStatus === "function") opts.onStatus("waiting for upscaled image…");
+    const CLARITY_POLL_MS = 2000;
+    const CLARITY_TIMEOUT_MS = 180000;
+    const t0 = Date.now();
+    let buf = null;
+    let lastStatus = 0;
+    while (Date.now() - t0 < CLARITY_TIMEOUT_MS) {
+      let imgRes;
+      try { imgRes = await fetch(url, { method: "GET" }); }
+      catch (e) { await new Promise(function (r) { setTimeout(r, CLARITY_POLL_MS); }); continue; }
+      lastStatus = imgRes.status;
+      if (imgRes.ok) {
+        const b = await imgRes.arrayBuffer();
+        // Accept only when it's actually image bytes (not an HTML/JSON "not ready").
+        if (b && b.byteLength > 0 && detectImageMime(b)) { buf = b; break; }
+      }
+      if (opts && typeof opts.onStatus === "function") opts.onStatus("rendering… (" + Math.round((Date.now()-t0)/1000) + "s)");
+      await new Promise(function (r) { setTimeout(r, CLARITY_POLL_MS); });
+    }
+    if (!buf) throw new Error("Clarity: result image never became ready (last status " + lastStatus + "). Raw response logged to console.");
+    const mime = detectImageMime(buf) || "image/png";
+    const dims = decodeImageDimsFromBytes(buf) || { w: 0, h: 0 };
+    return { bytes: buf, mime: mime, width: dims.w, height: dims.h, costUsd: costUsd };
   }
 
   // =======================================================================
@@ -2758,6 +3047,10 @@
   let cachedKey       = "";   // Google AI Studio (Gemini)
   let cachedOpenAIKey = "";   // OpenAI
   let cachedTopazKey  = "";   // Topaz Image API (finishing — v0.07)
+  let cachedBflKey    = "";   // Black Forest Labs / Flux.2 (v0.12)
+  let cachedClarityKey = "";  // ClarityAI upscaler (v0.12 — scaffold only)
+  let cachedUpscaleProvider = "topaz";   // v0.12 — "topaz" | "clarity"
+  let cachedClarityCreativity = 0;        // v0.12 — Clarity creativity, default 0 (fidelity)
   // v0.07.1 — what the Upscale action sends to Topaz.
   //   "composite"   → readDocCompositeAsImage() — flattened snapshot of
   //                   ALL visible layers (default; what a multi-layer
@@ -2778,7 +3071,10 @@
     return (m && m.provider) || "gemini";
   }
   function activeApiKey() {
-    return activeProvider() === "openai" ? cachedOpenAIKey : cachedKey;
+    const p = activeProvider();
+    if (p === "openai") return cachedOpenAIKey;
+    if (p === "bfl")    return cachedBflKey;
+    return cachedKey;
   }
   // Reference images held in memory only. Each entry:
   //   { name, mime, base64, dataUrl }
@@ -2833,7 +3129,12 @@
     "gemini-3-pro-image-preview":     { "1K": 0.134, "2K": 0.134, "4K": 0.24 },
     "gemini-3.1-flash-image-preview": { "0.5K": 0.02, "1K": 0.039, "2K": 0.039, "4K": 0.06 },
     "gpt-image-2":                    { "1K": 0.04, "2K": 0.07, "4K": 0.19 },
+    // v0.12 — Flux.2 estimates (BFL bills ~$0.03/MP pro, ~$0.07/MP max; submit
+    // response returns the real cost — these rates are the pre-gen estimate, editable in Settings).
+    "flux-2-pro":                     { "1K": 0.03, "2K": 0.12 },
+    "flux-2-max":                     { "1K": 0.07, "2K": 0.21 },
     "topaz":                          { "perMP": 0.01 },
+    // Clarity cost is NOT a rate — it's read off the response (cost_usd) per run.
   };
   function cloneRates(src) {
     const out = {};
@@ -3342,9 +3643,12 @@
       btn.classList.remove("disabled");
       if (status.classList.contains("muted")) status.textContent = "Ready.";
     } else {
+      // Key-optional: dormant model → Generate disabled with a clean message;
+      // no network call, never throws.
       btn.classList.add("disabled");
-      const label = activeProvider() === "openai" ? "OpenAI" : "Google AI Studio";
-      status.textContent = "Save the " + label + " API key in Settings.";
+      const p = activeProvider();
+      const label = p === "openai" ? "OpenAI" : p === "bfl" ? "Black Forest Labs" : "Google AI Studio";
+      status.textContent = "Add the " + label + " API key in Settings to use this model.";
       status.className = "status muted";
     }
   }
@@ -3490,11 +3794,88 @@
     if ($lbl) $lbl.textContent = label;
   }
 
+  // ----- v0.12 BFL (Flux) key handlers -----
+  async function actSaveBflKey() {
+    const $key = $("bfl-api-key");
+    const v = (($key && $key.value) || "").trim();
+    if (!v) { setConnBfl("bad", "empty key"); return; }
+    try {
+      await saveBflKey(v); cachedBflKey = v;
+      setConnBfl("unknown", "saved — generate to verify");
+      refreshGenerateEnabled();
+    } catch (err) { setConnBfl("bad", (err && err.message) || "save failed"); }
+  }
+  async function actTestBflKey() {
+    const $key = $("bfl-api-key");
+    const v = (($key && $key.value) || "").trim();
+    if (!v) { setConnBfl("bad", "empty key"); return; }
+    setConnBfl("busy", "saving…");
+    const result = await testConnectionFlux(v);
+    if (result.ok) { try { await saveBflKey(v); } catch (_) {} cachedBflKey = v; setConnBfl("unknown", result.message); refreshGenerateEnabled(); }
+    else setConnBfl("bad", result.message);
+  }
+  function actShowBflKey() {
+    const $key = $("bfl-api-key"); const $btn = $("show-bfl-key");
+    if (!$key || !$btn) return;
+    const isPwd = $key.type === "password";
+    $key.type = isPwd ? "text" : "password";
+    $btn.textContent = isPwd ? "Hide" : "Show";
+  }
+  async function actOpenBflKeyPage() {
+    try { await shellMod().openExternal("https://docs.bfl.ai/"); } catch (_) {}
+  }
+  function setConnBfl(state, label) {
+    const $dot = $("bfl-conn-dot"); const $lbl = $("bfl-conn-label");
+    if ($dot) $dot.className = "dot dot-" + state;
+    if ($lbl) $lbl.textContent = label;
+  }
+
+  // ----- v0.12 ClarityAI key handlers -----
+  async function actSaveClarityKey() {
+    const $key = $("clarity-api-key");
+    const v = (($key && $key.value) || "").trim();
+    if (!v) { setConnClarity("bad", "empty key"); return; }
+    try {
+      await saveClarityKey(v); cachedClarityKey = v;
+      setConnClarity("unknown", "saved — upscale to verify");
+      refreshUpscaleEnabled();
+    } catch (err) { setConnClarity("bad", (err && err.message) || "save failed"); }
+  }
+  async function actTestClarityKey() {
+    const $key = $("clarity-api-key");
+    const v = (($key && $key.value) || "").trim();
+    if (!v) { setConnClarity("bad", "empty key"); return; }
+    setConnClarity("busy", "saving…");
+    const result = await testConnectionClarity(v);
+    if (result.ok) { try { await saveClarityKey(v); } catch (_) {} cachedClarityKey = v; setConnClarity("unknown", result.message); refreshUpscaleEnabled(); }
+    else setConnClarity("bad", result.message);
+  }
+  function actShowClarityKey() {
+    const $key = $("clarity-api-key"); const $btn = $("show-clarity-key");
+    if (!$key || !$btn) return;
+    const isPwd = $key.type === "password";
+    $key.type = isPwd ? "text" : "password";
+    $btn.textContent = isPwd ? "Hide" : "Show";
+  }
+  async function actOpenClarityKeyPage() {
+    try { await shellMod().openExternal("https://clarityai.co/"); } catch (_) {}
+  }
+  function setConnClarity(state, label) {
+    const $dot = $("clarity-conn-dot"); const $lbl = $("clarity-conn-label");
+    if ($dot) $dot.className = "dot dot-" + state;
+    if ($lbl) $lbl.textContent = label;
+  }
+
   function refreshUpscaleEnabled() {
     const btn = $("upscale-btn");
     if (!btn) return;
-    if (cachedTopazKey) btn.classList.remove("disabled");
-    else                btn.classList.add("disabled");
+    // Key-optional per selected upscaler provider.
+    const haveKey = (cachedUpscaleProvider === "clarity") ? !!cachedClarityKey : !!cachedTopazKey;
+    if (haveKey) btn.classList.remove("disabled");
+    else         btn.classList.add("disabled");
+    // Clarity creativity control shows only when Clarity is the provider.
+    const cf = $("clarity-creativity-field");
+    if (cf) cf.classList.toggle("hidden", cachedUpscaleProvider !== "clarity");
   }
 
   // v0.07 — Upscale (Topaz) handler.
@@ -3503,8 +3884,14 @@
   // source. No mask, no compositing tricks — Topaz returns a finished
   // image.
   async function actUpscaleTopaz() {
-    if (!cachedTopazKey) {
-      setStatus("bad", "Save the Topaz API key in Settings.");
+    // Key-optional per selected upscaler provider.
+    const _upProvider = cachedUpscaleProvider === "clarity" ? "clarity" : "topaz";
+    if (_upProvider === "clarity" && !cachedClarityKey) {
+      setStatus("bad", "Add the ClarityAI API key in Settings to use Clarity.");
+      return;
+    }
+    if (_upProvider === "topaz" && !cachedTopazKey) {
+      setStatus("bad", "Add the Topaz API key in Settings to use Topaz.");
       return;
     }
     if (generateInFlight) return;
@@ -3531,7 +3918,7 @@
           : "composite";
       } catch (_) {}
       await runWithRecall({
-        op: "upscale:topaz",
+        op: "upscale:" + _upProvider,
         params: upscaleParamsFromForm(),
         targetLayerId: _targetLayerId,
         sourceRef: srcRef,
@@ -4184,17 +4571,20 @@
 
   function upscaleParamsFromForm() {
     return {
+      provider:   cachedUpscaleProvider === "clarity" ? "clarity" : "topaz",
       sourceMode: cachedUpscaleSource === "active-layer" ? "active-layer" : "composite",
-      factor: cachedUpscaleFactor === 4 ? 4 : 2,
+      factor:     cachedUpscaleFactor === 4 ? 4 : 2,
+      creativity: cachedClarityCreativity,
     };
   }
-  // The upscale read→Topaz→place flow, lifted out of actUpscaleTopaz so it can
-  // run through the recall wrapper. NOTE: placement grows the canvas (grow-only).
-  // A re-run/discard deletes the layer but does NOT shrink the canvas — this does
-  // not COMPOUND (re-running the same factor grows to the same size), so it's
-  // safe; a discarded upscale just leaves the canvas at the enlarged size.
+  // The upscale read→(Topaz|Clarity)→place flow, lifted out of actUpscaleTopaz so
+  // it can run through the recall wrapper. NOTE: placement grows the canvas
+  // (grow-only). A re-run/discard deletes the layer but does NOT shrink the
+  // canvas — this does not COMPOUND (re-running the same factor grows to the
+  // same size), so a discarded upscale just leaves the canvas enlarged.
   async function executeUpscale(params) {
     const ps = psMod();
+    const provider = params.provider === "clarity" ? "clarity" : "topaz";
     const sourceMode = params.sourceMode === "active-layer" ? "active-layer" : "composite";
     setStatus("busy", sourceMode === "active-layer" ? "Reading active layer…" : "Reading flattened composite…");
     let sourceImage = null;
@@ -4202,12 +4592,24 @@
       sourceImage = sourceMode === "active-layer"
         ? await readActiveLayerAsImage()
         : await readDocCompositeAsImage();
-    }, { commandName: "KBImage — read pixels for Topaz upscale" });
+    }, { commandName: "KBImage — read pixels for upscale" });
 
-    const enhanced = await upscaleViaTopaz(cachedTopazKey, sourceImage, {
-      factor:   params.factor === 4 ? 4 : 2,
-      onStatus: function (s) { setStatus("busy", "Topaz: " + s); },
-    });
+    let enhanced, costUsd = null, brand;
+    if (provider === "clarity") {
+      brand = "Clarity Upscale";
+      enhanced = await upscaleViaClarity(cachedClarityKey, sourceImage, {
+        factor:     params.factor === 4 ? 4 : 2,
+        creativity: params.creativity,
+        onStatus:   function (s) { setStatus("busy", "Clarity: " + s); },
+      });
+      costUsd = enhanced.costUsd;   // real cost off the response
+    } else {
+      brand = "Topaz Upscale";
+      enhanced = await upscaleViaTopaz(cachedTopazKey, sourceImage, {
+        factor:   params.factor === 4 ? 4 : 2,
+        onStatus: function (s) { setStatus("busy", "Topaz: " + s); },
+      });
+    }
 
     const srcW = (sourceImage && sourceImage.width) || 0;
     const outW = enhanced.width || 0;
@@ -4216,16 +4618,20 @@
 
     setStatus("busy", "Placing enhanced layer at native size…");
     const srcTag = sourceMode === "active-layer" ? "Active Layer" : "Composite";
-    const namePieces = ["Topaz Upscale"];
+    const namePieces = [brand];
     if (factorTag) namePieces.push(factorTag);
     namePieces.push("(" + srcTag + ")");
     namePieces.push(timestampForLayerName());
     const placed = await placeUpscaleResultAsLayer(enhanced.bytes, enhanced.mime, namePieces.join(" "));
 
     try {
-      const __w = enhanced.width  || placed.nativeW || 0;
-      const __h = enhanced.height || placed.nativeH || 0;
-      if (__w && __h) addSessionCost(topazPerMP() * (__w * __h) / 1e6);
+      if (provider === "clarity") {
+        if (costUsd != null && isFinite(costUsd)) addSessionCost(costUsd);   // returned cost_usd
+      } else {
+        const __w = enhanced.width  || placed.nativeW || 0;
+        const __h = enhanced.height || placed.nativeH || 0;
+        if (__w && __h) addSessionCost(topazPerMP() * (__w * __h) / 1e6);
+      }
     } catch (_) {}
 
     return {
@@ -4880,10 +5286,17 @@
     const _activeModelId = cachedModelId || DEFAULT_MODEL_ID;
     const _activeModel   = MODELS[_activeModelId] || MODELS[DEFAULT_MODEL_ID];
     const _activeProvider = (_activeModel && _activeModel.provider) || "gemini";
-    const _activeKey = (_activeProvider === "openai") ? cachedOpenAIKey : cachedKey;
+    // Key-optional: a model whose provider key isn't set is DORMANT — selecting
+    // it is fine, but generating surfaces a clean message and makes NO network
+    // call (returns here, never throws/breaks the panel).
+    const _activeKey = (_activeProvider === "openai") ? cachedOpenAIKey
+                     : (_activeProvider === "bfl")    ? cachedBflKey
+                     : cachedKey;
     if (!_activeKey) {
-      const label = _activeProvider === "openai" ? "OpenAI" : "Google AI Studio";
-      setStatus("bad", "Save the " + label + " API key in Settings.");
+      const label = _activeProvider === "openai" ? "OpenAI"
+                  : _activeProvider === "bfl"    ? "Black Forest Labs"
+                  : "Google AI Studio";
+      setStatus("bad", "Add the " + label + " API key in Settings to use this model.");
       return;
     }
 
@@ -5329,9 +5742,23 @@
     saveModel(newId).catch(function (e) {
       try { console.error(TAG, "saveModel failed:", e); } catch (_) {}
     });
+    // v0.12 — conditional negative-prompt field (dormant — no v0.12 engine
+    // supports it; lights up only for a future model flagged supportsNegativePrompt).
+    updateNegativePromptVisibility();
     // v0.09 — model switched → price (and the resolution pills) changed.
     if (typeof updateCostEstimate === "function") updateCostEstimate();
   };
+
+  // Show the negative-prompt field only when the ACTIVE model declares
+  // supportsNegativePrompt. v0.12: NO model sets it, so the field stays hidden —
+  // the mechanism exists for a future engine (same pattern as the aspect reshape).
+  function updateNegativePromptVisibility() {
+    const field = $("negative-prompt-field");
+    if (!field) return;
+    const m = MODELS[cachedModelId] || MODELS[DEFAULT_MODEL_ID];
+    const show = !!(m && m.supportsNegativePrompt);
+    field.classList.toggle("hidden", !show);
+  }
 
   // Now that the action implementations exist, swap the placeholder
   // dispatchAction (referenced inside handleClick) for the real router.
@@ -5348,6 +5775,14 @@
     "test-topaz-key":        actTestTopazKey,
     "show-topaz-key":        actShowTopazKey,
     "open-topaz-key-page":   actOpenTopazKeyPage,
+    "save-bfl-key":          actSaveBflKey,
+    "test-bfl-key":          actTestBflKey,
+    "show-bfl-key":          actShowBflKey,
+    "open-bfl-key-page":     actOpenBflKeyPage,
+    "save-clarity-key":      actSaveClarityKey,
+    "test-clarity-key":      actTestClarityKey,
+    "show-clarity-key":      actShowClarityKey,
+    "open-clarity-key-page": actOpenClarityKeyPage,
     "generate":              actGenerate,
     "recall-accept":         actRecallAccept,
     "recall-rerun":          actRecallReRun,
@@ -5416,6 +5851,20 @@
       setConnTopaz("unknown", "no key");
     }
 
+    // ----- BFL (Flux) key (v0.12) -----
+    try { cachedBflKey = await loadBflKey(); } catch (_) { cachedBflKey = ""; }
+    if (cachedBflKey) {
+      const $bKey = $("bfl-api-key"); if ($bKey) $bKey.value = cachedBflKey;
+      setConnBfl("ok", "saved");
+    } else { setConnBfl("unknown", "no key"); }
+
+    // ----- ClarityAI key (v0.12) -----
+    try { cachedClarityKey = await loadClarityKey(); } catch (_) { cachedClarityKey = ""; }
+    if (cachedClarityKey) {
+      const $cKey = $("clarity-api-key"); if ($cKey) $cKey.value = cachedClarityKey;
+      setConnClarity("ok", "saved");
+    } else { setConnClarity("unknown", "no key"); }
+
     refreshGenerateEnabled();
     refreshUpscaleEnabled();
 
@@ -5443,6 +5892,8 @@
 
     // Initial mode UI: Generate mode, prompt label/placeholder/button label.
     updateModeUi();
+    updateNegativePromptVisibility();   // v0.12 — dormant (hidden) at load
+    refreshUpscaleEnabled();            // v0.12 — sets Clarity creativity-field visibility
 
     // ----- v0.09 cost meter: load rates + threshold, paint UI -----
     await loadRates();

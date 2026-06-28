@@ -876,6 +876,14 @@ code {
         Enhance resolution with Topaz, then place the result as a new layer.
         Topaz is a finishing provider — not a generation model.
       </div>
+      <!-- v0.12 — upscaler provider (Topaz default / Clarity Crystal). -->
+      <div class="field">
+        <span class="field-label">Upscaler</span>
+        <div id="pills-upscale-provider" class="pills" data-group="upscale-provider">
+          <div class="pill selected" role="button" tabindex="0" data-value="topaz">Topaz</div>
+          <div class="pill"          role="button" tabindex="0" data-value="clarity">Clarity Crystal</div>
+        </div>
+      </div>
       <div class="field">
         <span class="field-label">Source</span>
         <div id="pills-upscale-source" class="pills" data-group="upscale-source">
@@ -889,6 +897,22 @@ code {
           <div class="pill selected" role="button" tabindex="0" data-value="2">2x</div>
           <div class="pill"          role="button" tabindex="0" data-value="4">4x</div>
         </div>
+      </div>
+      <!-- v0.12 — Clarity creativity (0 = fidelity). Shown only for Clarity. -->
+      <div id="clarity-creativity-field" class="field hidden">
+        <span class="field-label">Creativity (Clarity)</span>
+        <div id="pills-clarity-creativity" class="pills" data-group="clarity-creativity">
+          <div class="pill selected" role="button" tabindex="0" data-value="0">0</div>
+          <div class="pill"          role="button" tabindex="0" data-value="0.35">0.35</div>
+          <div class="pill"          role="button" tabindex="0" data-value="0.6">0.6</div>
+        </div>
+        <div class="hint-small">0 = fidelity / no invented detail (default). Higher = more generative.</div>
+      </div>
+      <!-- v0.12 — usage note (UI text only). -->
+      <div class="hint-small">
+        Upscale resizes the canvas. Best used last, on the final flattened image —
+        layers added after will match the upscaled resolution. Only upscale
+        mid-project to create a new starting point.
       </div>
       <div id="upscale-estimate" class="cost-estimate"></div>
       <div id="upscale-btn" class="btn-upscale disabled" role="button" tabindex="0" data-action="upscale-topaz">Upscale (Topaz)</div>
@@ -986,6 +1010,42 @@ code {
         </div>
       </div>
 
+      <!-- v0.12 — Black Forest Labs (Flux.2 pro/max). Generation provider, x-key. -->
+      <div class="field">
+        <span class="field-label">Black Forest Labs (Flux) API key</span>
+        <div class="key-row">
+          <input id="bfl-api-key" class="input" type="password" placeholder="bfl-…" autocomplete="off" spellcheck="false" />
+          <div id="show-bfl-key" class="btn-ghost" role="button" tabindex="0" data-action="show-bfl-key">Show</div>
+        </div>
+        <a id="get-bfl-key-link" href="#" class="link" data-action="open-bfl-key-page">How to get your BFL key</a>
+      </div>
+      <div class="row">
+        <div id="save-bfl-key" class="btn-primary"   role="button" tabindex="0" data-action="save-bfl-key">Save</div>
+        <div id="test-bfl-key" class="btn-secondary" role="button" tabindex="0" data-action="test-bfl-key">Test Connection</div>
+        <div class="conn">
+          <span id="bfl-conn-dot" class="dot dot-unknown"></span>
+          <span id="bfl-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.12 — ClarityAI (Crystal upscaler). Bearer ap_…, second upscaler. -->
+      <div class="field">
+        <span class="field-label">ClarityAI API key</span>
+        <div class="key-row">
+          <input id="clarity-api-key" class="input" type="password" placeholder="ap_…" autocomplete="off" spellcheck="false" />
+          <div id="show-clarity-key" class="btn-ghost" role="button" tabindex="0" data-action="show-clarity-key">Show</div>
+        </div>
+        <a id="get-clarity-key-link" href="#" class="link" data-action="open-clarity-key-page">How to get your ClarityAI key</a>
+      </div>
+      <div class="row">
+        <div id="save-clarity-key" class="btn-primary"   role="button" tabindex="0" data-action="save-clarity-key">Save</div>
+        <div id="test-clarity-key" class="btn-secondary" role="button" tabindex="0" data-action="test-clarity-key">Test Connection</div>
+        <div class="conn">
+          <span id="clarity-conn-dot" class="dot dot-unknown"></span>
+          <span id="clarity-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
       <!-- v0.09 — spend-warning threshold. Session total turns red past this. -->
       <div class="field">
         <span class="field-label">Spend warning ($)</span>
@@ -1029,6 +1089,22 @@ code {
           class="textarea"
           placeholder="Describe the image you want to generate…"
           rows="4"
+          maxlength="1024"
+        ></textarea>
+      </div>
+
+      <!-- v0.12 — conditional negative-prompt field. DORMANT: hidden for every
+           v0.12 engine (none support it); shows only when a future model flags
+           supportsNegativePrompt (driven by updateNegativePromptVisibility on
+           model change). -->
+      <div id="negative-prompt-field" class="field hidden">
+        <span class="field-label">Negative prompt</span>
+        <textarea
+          id="negative-prompt"
+          class="textarea"
+          placeholder="What to avoid (no extra lace, limbs, trim…)"
+          rows="2"
+          maxlength="1024"
         ></textarea>
       </div>
 
