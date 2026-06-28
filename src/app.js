@@ -1656,20 +1656,17 @@
 
   // =======================================================================
   // CLARITY CRYSTAL (ClarityAI) — second upscaler adapter. v0.12. DIRECT.
-  //
-  // Confirmed first-party (key provisioned for KBImage):
+  // CONFIRMED end-to-end against a live call (synchronous):
   //   POST https://api-upscale.clarityai.co
   //   headers { Authorization: Bearer ap_…, Content-Type: application/json }
-  //   body { mode:"crystal", image:"<URL>", scale_factor, creativity, output_format:"png" }
-  //   → response returns the result image URL directly + cost_usd + credit_cost
-  //     (1 credit = $0.01). No webhooks.
-  //
-  // ⚠️ IMAGE-AS-URL (flagged for verification): the API wants `image` as a URL it
-  // fetches, but our pixels are local PS layers with no public host. This adapter
-  // sends a **data: URI** (`data:image/png;base64,…`) built from the source pixels.
-  // If the endpoint REQUIRES a fetchable http(s) URL and rejects data URIs, we
-  // need a hosting step (none available without an aggregator) — confirm against
-  // a live call. Cost uses the RETURNED `cost_usd` (never an estimate).
+  //   body { mode:"crystal", image:"<data: URI>", scale_factor, creativity, output_format:"png" }
+  //   → 200 { status, message:"<result image URL>", balance, credit_cost, cost_usd, logs }
+  // - IMAGE TRANSPORT: a **data: URI** (`data:image/png;base64,…`) of the source
+  //   pixels — CONFIRMED ACCEPTED (do not change). No public host needed.
+  // - RESULT: `message` IS the final image URL (Cloudflare R2 `r2-us.clarityai.co`,
+  //   covered by *.clarityai.co). Synchronous — `logs` holds the prediction text,
+  //   not the URL. No webhooks, no job-poll.
+  // - COST: the RETURNED `cost_usd` (= credit_cost × $0.01); `balance` is remaining.
   // =======================================================================
   const CLARITY_HOST = "https://api-upscale.clarityai.co";
   function clarityAuthHeaders(apiKey) {
@@ -1704,56 +1701,41 @@
       throw new Error("Clarity " + res.status + ": " + shortErr(t));
     }
     const j = await res.json();
-    // FULL raw response logged so the live structure is visible (sync vs async,
-    // exact field names) — confirmed via live test: the result image URL lives in
-    // `message` (it ends in <hash>.png; may be preceded by "Starting prediction /
-    // Fixed seed…" log text), so pull the image URL out of it by regex.
-    try { console.log(TAG, "clarity raw response:", JSON.stringify(j)); } catch (_) {}
+    try { console.log(TAG, "clarity response:", JSON.stringify(j)); } catch (_) {}
 
-    const IMG_RX = /https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp)/i;
-    let url = null;
-    if (typeof j.message === "string") { const m = j.message.match(IMG_RX); if (m) url = m[0]; }
-    if (!url) { const m = JSON.stringify(j).match(IMG_RX); if (m) url = m[0]; }   // whole-body fallback
-    if (!url) url = j.image || j.url || j.output || j.result || j.result_url || null;   // explicit-field fallback
-    if (!url) {
-      throw new Error("Clarity: 200 but no image URL found — raw logged to console. "
-        + "If this is an async job-start, we need the poll URL/status field. Body: " + shortErr(JSON.stringify(j)));
+    // CONFIRMED live shape (SYNC):
+    //   { status:200, message:"<result image URL>", balance, credit_cost, cost_usd, logs }
+    // The result is a CLOUDFLARE-R2 URL in `message` (r2-us.clarityai.co, covered by
+    // the *.clarityai.co manifest entry). It's the final ready image (the prediction
+    // log text lives separately in `logs`, NOT in `message`) — so this is synchronous.
+    let url = (typeof j.message === "string" && /^https?:\/\//i.test(j.message)) ? j.message : null;
+    if (!url) {   // defensive only — `message` has been the URL every time
+      const m = JSON.stringify(j).match(/https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp)/i);
+      if (m) url = m[0];
     }
+    if (!url) throw new Error("Clarity: no result URL in `message` — raw logged. Body: " + shortErr(JSON.stringify(j)));
 
-    // Cost: prefer an explicit USD field, else credits × $0.01 (1 credit = $0.01).
-    // `balance` is the REMAINING balance, not the charge — don't use it for cost.
-    let costUsd = 0;
-    if      (j.cost_usd    != null) costUsd = Number(j.cost_usd);
-    else if (j.credit_cost != null) costUsd = Number(j.credit_cost) * 0.01;
-    else if (j.credits     != null) costUsd = Number(j.credits)     * 0.01;
-    else if (j.credit      != null) costUsd = Number(j.credit)      * 0.01;
-    try { console.log(TAG, "clarity url:", String(url).slice(0, 96), "| costUsd=" + costUsd, "| balance=" + j.balance); } catch (_) {}
-    // Sync vs async: the result URL is returned inline, but "Starting prediction"
-    // means the image at that URL may not be ready the instant we POST. Instead of
-    // guessing a separate poll endpoint, we POLL THE RESULT URL itself — retry the
-    // GET until it returns image bytes (covers sync AND async-with-result-URL).
-    // Webhooks stay OFF. If the raw log later shows a real job-id/status, we can
-    // swap to a proper status poll.
-    if (opts && typeof opts.onStatus === "function") opts.onStatus("waiting for upscaled image…");
-    const CLARITY_POLL_MS = 2000;
-    const CLARITY_TIMEOUT_MS = 180000;
-    const t0 = Date.now();
-    let buf = null;
-    let lastStatus = 0;
-    while (Date.now() - t0 < CLARITY_TIMEOUT_MS) {
+    // Cost: `cost_usd` is present (= credit_cost × $0.01). `balance` is the REMAINING
+    // balance (not the charge) — never use it for cost.
+    const costUsd = (j.cost_usd != null) ? Number(j.cost_usd)
+                  : (j.credit_cost != null) ? Number(j.credit_cost) * 0.01 : 0;
+    try { console.log(TAG, "clarity: url=" + url + " cost_usd=" + costUsd + " credit_cost=" + j.credit_cost + " balance=" + j.balance); } catch (_) {}
+
+    // SYNC fetch of the ready R2 URL, with a few light retries for transient R2
+    // propagation latency (NOT an async job-poll — `message` is already the result).
+    if (opts && typeof opts.onStatus === "function") opts.onStatus("fetching upscaled image…");
+    let buf = null, lastStatus = 0;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise(function (r) { setTimeout(r, 1500); });
       let imgRes;
-      try { imgRes = await fetch(url, { method: "GET" }); }
-      catch (e) { await new Promise(function (r) { setTimeout(r, CLARITY_POLL_MS); }); continue; }
+      try { imgRes = await fetch(url, { method: "GET" }); } catch (e) { continue; }
       lastStatus = imgRes.status;
       if (imgRes.ok) {
         const b = await imgRes.arrayBuffer();
-        // Accept only when it's actually image bytes (not an HTML/JSON "not ready").
         if (b && b.byteLength > 0 && detectImageMime(b)) { buf = b; break; }
       }
-      if (opts && typeof opts.onStatus === "function") opts.onStatus("rendering… (" + Math.round((Date.now()-t0)/1000) + "s)");
-      await new Promise(function (r) { setTimeout(r, CLARITY_POLL_MS); });
     }
-    if (!buf) throw new Error("Clarity: result image never became ready (last status " + lastStatus + "). Raw response logged to console.");
+    if (!buf) throw new Error("Clarity: result fetch failed (last status " + lastStatus + ").");
     const mime = detectImageMime(buf) || "image/png";
     const dims = decodeImageDimsFromBytes(buf) || { w: 0, h: 0 };
     return { bytes: buf, mime: mime, width: dims.w, height: dims.h, costUsd: costUsd };

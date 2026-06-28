@@ -43,12 +43,14 @@ checkpointed as IN PROGRESS — NOT yet tested-working. The recall foundation
   - **Clarity Crystal** — ClarityAI DIRECT, 2nd upscaler beside Topaz (Upscale-tab
     provider toggle, default Topaz; `creativity` default 0). `POST
     api-upscale.clarityai.co`, `Bearer ap_…`, image sent as a **data URI**
-    (confirmed working — do NOT change). Live 200 returned but the result URL is in
-    **`message`** (ends in `<hash>.png`) — adapter now regex-extracts it + polls the
-    result URL until image bytes arrive (sync/async-safe, no webhooks). Cost from the
-    **credit field × $0.01** (not `cost_usd`; `balance` is remaining, not the charge).
-    **PENDING:** paste the full `clarity raw response:` console log to lock the exact
-    result + cost field names (drop the regex/guess fallbacks).
+    (CONFIRMED accepted — do NOT change). **SYNCHRONOUS**, confirmed live response:
+    `{ status, message:<result URL>, balance, credit_cost, cost_usd, logs }`. Adapter
+    maps the result image to **`message`** (R2 host `r2-us.clarityai.co`, covered by
+    `*.clarityai.co`), cost to the returned **`cost_usd`** (= credit_cost × $0.01;
+    `balance` is remaining, not the charge), and fetches the ready URL with light
+    retries (no async job-poll, no webhooks). Note: 4× of 2048²→8192² (67MP) = ~$1.60.
+    **Field maps now exact** (regex kept only as a defensive fallback). Re-test that
+    the upscaled layer places; then Clarity is confirmed-complete.
   - **Negative-prompt field** — conditional mechanism built but **DORMANT**: hidden
     for every v0.12 engine (none support it); lights up only for a future model
     flagged `supportsNegativePrompt`.
