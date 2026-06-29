@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>KBImage</title>
+    <!-- CSS is inlined here (not an external <link>) because this UXP/UDT
+         load serves the entry HTML live but does NOT reliably refresh linked
+         sub-resources (the external styles.css never applied across reloads,
+         while inline styles always render). Keeping the stylesheet inline
+         guarantees it loads with the panel. Edit styles here. -->
+    <style>
+:root {
+  /* ---- Mockup palette (kbanana-mockup-v2.html) ---- */
+  --ground:       #0E0E10;   /* panel background */
+  --card:         #18181B;
+  --card-2:       #1F1F23;
+  --hairline:     #2A2A2F;
+  --hairline-2:   #34343A;
+  --hairline-3:   #48484f;
+
+  --text:         #F4F4F5;
+  --text-dim:     #A1A1A6;
+  --text-faint:   #6B6B71;
+
+  --mustard:      #FEDB5B;
+  --mustard-2:    #FFF15C;   /* gradient top */
+  --mustard-deep: #E9C23F;   /* gradient bottom */
+  --ink:          #1A1505;   /* text on mustard */
+
+  --info:         #6B88EF;   /* connected dot, links, focus */
+  --alert:        #EB5757;   /* errors, not-connected dot */
+
+  /* ---- Radii (fixed px; no % on pills — % makes ellipses) ---- */
+  --r-pill:  15px;   /* .pill (30px tall) → round ends, flat sides */
+  --r-input: 12px;
+  --r-hero:  23px;   /* full-pill generate button (~46px tall) */
+  --r-btn:   17px;   /* Save / Test buttons */
+  --r-sm:    8px;
+
+  --gap: 12px;
+  --pad: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: "Segoe UI", -apple-system, "Adobe Clean", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+body {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ===== TOPBAR — brand mark + tab row (Settings is the 5th tab) ===== */
+.topbar {
+  display: flex;
+  align-items: center;
+  padding: 12px var(--pad) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.topbar > * + * { margin-left: 10px; }   /* replaces flex gap (UXP ignores gap) */
+
+.brand {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  display: block;
+  flex: 0 0 auto;
+  object-fit: cover;
+  box-shadow: 0 2px 10px rgba(254, 219, 91, .22);
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.tabs > * + * { margin-left: 2px; }
+
+.tab {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  padding: 9px 4px 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;   /* underline track */
+  margin-bottom: -1px;                     /* overlap the topbar hairline */
+  transition: color 0.14s, border-color 0.14s;
+}
+.tab:hover { color: var(--text-dim); }
+.tab.active {
+  color: var(--mustard);
+  font-weight: 600;
+  border-bottom-color: var(--mustard);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ===== TWO-TIER NAV — top tier (Image now; Print later) ===== */
+.toptabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.toptabs > * + * { margin-left: 4px; }   /* margin, not flex gap */
+.toptab {
+  padding: 8px 12px 9px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.14s, border-color 0.14s;
+}
+.toptab:hover { color: var(--text); }
+.toptab.active {
+  color: var(--mustard);
+  border-bottom-color: var(--mustard);
+}
+.toptab:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; border-radius: 2px; }
+
+/* ===== OPERATOR SUBNAV — icon-only row (second tier) ===== */
+.subnav {
+  display: flex;
+  align-items: stretch;
+  padding: 0 var(--pad);
+  border-bottom: 1px solid var(--hairline);
+}
+/* .opicon carries class "tab" too (JS active-toggle hook); these rules come
+   after .tab so they override its text-row layout. .tab.active still supplies
+   the mustard colour + underline (the existing accent treatment). */
+.opicon {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;        /* icon on top, small label beneath */
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  padding: 6px 2px 7px;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.14s, border-color 0.14s;
+}
+.opicon:hover { color: var(--text); }
+.opicon.active {
+  color: var(--mustard);
+  border-bottom-color: var(--mustard);
+}
+.opicon:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; border-radius: 4px; }
+.opicon-svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;          /* inherits .opicon colour → mustard when active */
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+/* Always-visible small label under each icon (replaces the hover tooltip —
+   less clutter, no popups, no native-title yellow). Colour inherits from
+   .opicon: dim normally, mustard when active. */
+.op-label {
+  margin-top: 3px;
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
+
+/* Header gear → opens Settings (v0.08.1 step 2). ~30px outline,
+   --text-dim → --mustard on hover; mustard outline when active. */
+.gear {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+.gear:hover { color: var(--mustard); border-color: var(--hairline-3); }
+.gear.active { color: var(--mustard); border-color: var(--mustard); }
+.gear:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+/* ===== VIEWS (per-tab content area) ===== */
+.view {
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+}
+.view > * + * { margin-top: var(--gap); }
+
+.hidden { display: none !important; }
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.row > * + * { margin-left: var(--gap); }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.field > * + * { margin-top: 6px; }
+
+.field-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.section-subtitle { margin-bottom: 2px; }
+
+.hint-small { font-size: 10.5px; color: var(--text-faint); line-height: 1.5; }
+.hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Legacy two-area Edit layout (kept in case markup uses it). */
+.edit-area { display: flex; flex-direction: column; }
+.edit-area > * + * { margin-top: 6px; }
+.edit-area + .edit-area {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* ===== INPUTS — near-black field, hairline border, blue focus ===== */
+.input,
+.textarea {
+  width: 100%;
+  background: #000;
+  color: #fff;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-input);
+  padding: 11px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+  caret-color: #fff;
+  transition: border-color 0.12s;
+}
+.input::placeholder,
+.textarea::placeholder { color: var(--text-faint); }
+.input:hover,
+.textarea:hover { border-color: var(--hairline-3); }
+.input:focus,
+.textarea:focus { border-color: var(--info); }
+
+/* .input ONLY — clean BLUE border, no grey, no native inner inset/box-shadow.
+   Scoped to .input so the prompt .textarea is unchanged. Matches the link blue
+   (--info, same as "How to get your key"); focus is a slightly brighter blue. */
+.input {
+  border-color: var(--info);
+  -webkit-appearance: none;   /* remove the native grey inner border/inset */
+  appearance: none;
+  box-shadow: none;
+}
+.input:hover { border-color: var(--info); }
+.input:focus { border-color: #8AA2F6; box-shadow: none; }
+
+.textarea {
+  resize: vertical;
+  min-height: 78px;
+  max-height: 200px;
+  /* All-black instruction box (v0.08.1 step 1). appearance:none kills the
+     native textarea chrome (grey inset border + inner background); the box
+     keeps a single clean 1px outer outline. */
+  background: #000;
+  border: 1px solid var(--hairline-2);
+  box-shadow: none;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* ===== PILLS — flat-sided, round ends. Selected = mustard gradient ===== */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+}
+.pills .pill { margin: 0 6px 6px 0; }    /* replaces flex gap; wraps cleanly */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 15px;
+  min-width: 44px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.14s, color 0.14s, border-color 0.14s, box-shadow 0.14s;
+}
+.pill:hover {
+  border-color: var(--hairline-3);
+  color: var(--text);
+}
+.pill.selected {
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  border-color: transparent;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 8px rgba(254, 219, 91, .22);
+}
+.pill.selected:hover {
+  background: linear-gradient(180deg, #FFF370, #EFC94B);
+}
+.pill:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+/* Aspect row only: the active pill is bright BLUE (other rows keep mustard). */
+#pills-aspect .pill.selected {
+  background: linear-gradient(180deg, #7D97F4, #5872E6);
+  border-color: transparent;
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 1px 8px rgba(107, 136, 239, .30);
+}
+#pills-aspect .pill.selected:hover {
+  background: linear-gradient(180deg, #8AA2F6, #6379E8);
+}
+
+/* ===== DROPDOWNS (Model / Quantity — div-based, UXP-safe; no <select>) =====
+   position:absolute menu on a position:relative parent is allowed for popups
+   (no fixed/sticky, no flex gap). */
+.dropdown { position: relative; width: 100%; }
+.dd-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  background: #000;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-input);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.dd-trigger:hover { border-color: var(--hairline-3); }
+.dd-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dd-caret { margin-left: 8px; color: var(--text-faint); font-size: 10px; }
+.dd-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 38px;
+  z-index: 50;
+  background: #161618;
+  border: 1px solid var(--hairline-3);
+  border-radius: var(--r-input);
+  padding: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+}
+.dd-option {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.dd-option:hover { background: rgba(255, 255, 255, .05); color: var(--text); }
+.dd-option.selected {
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  color: var(--ink);
+  font-weight: 600;
+}
+.dd-trigger:focus-visible,
+.dd-option:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+/* v0.14 — dropdown group header (e.g. the Fal lane), non-selectable. */
+.dd-group-label {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  padding: 9px 10px 4px;
+  border-top: 1px solid var(--hairline-2);
+  margin-top: 4px;
+}
+
+/* ===== v0.14 — FAL LANE OPTIONS (shown only when a Fal model is active) ===== */
+.fal-caveat {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--alert);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+/* v0.14 — minimal fire-time Fal marker on the Generate tab (small, muted). */
+.fal-marker {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  margin-bottom: 8px;
+}
+
+/* ===== BUTTONS (plain divs styled as buttons) ===== */
+.btn-generate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 46px;
+  border-radius: var(--r-hero);
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14.5px;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 4px 16px rgba(254, 219, 91, .28);
+  transition: box-shadow 0.12s, opacity 0.12s;
+}
+.btn-generate:hover:not(.disabled) { box-shadow: 0 6px 20px rgba(254, 219, 91, .36); }
+.btn-generate.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--r-btn);
+  background: linear-gradient(180deg, var(--mustard-2), var(--mustard-deep));
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow 0.12s;
+}
+.btn-primary:hover { box-shadow: 0 2px 12px rgba(254, 219, 91, .3); }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 16px;
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  color: var(--text);
+  border-radius: var(--r-btn);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, .04);
+  border-color: var(--hairline-3);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 11px;
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  color: var(--text-faint);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.btn-ghost:hover:not(.disabled) {
+  background: rgba(255, 255, 255, .04);
+  color: var(--text);
+  border-color: var(--hairline-3);
+}
+.btn-ghost.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-generate:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+/* ===== RECALL BAR (foundation — preview / accept / re-run) =====
+   Shown only while a preview is pending. UXP-safe: normal flow, no
+   flex gap (margins for spacing), no position:fixed. */
+.recall-bar {
+  margin-top: 10px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-btn);
+}
+.recall-label {
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+  margin-bottom: 9px;
+}
+.recall-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.recall-actions .btn-primary { margin-right: 8px; }
+
+/* ===== REFERENCE IMAGES ===== */
+.ref-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ref-row > * { margin: 0 6px 6px 0; }
+.ref-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+}
+.ref-thumbs .ref-thumb { margin: 0 6px 6px 0; }
+.ref-thumb {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #5b5b62, #2c2c31);
+  border: 1px solid var(--hairline-2);
+}
+.ref-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ref-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;          /* round badge — explicitly NOT a pill */
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid var(--hairline-2);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ref-delete:hover { background: var(--alert); border-color: var(--alert); }
+
+/* ===== KEY ROW (Settings) ===== */
+.key-row {
+  display: flex;
+  align-items: stretch;
+}
+.key-row > * + * { margin-left: 6px; }
+.key-row .input { flex: 1; }
+
+/* ===== STATUS + CONNECTION ===== */
+.status {
+  font-size: 12px;
+  min-height: 16px;
+  line-height: 1.4;
+}
+.status.muted { color: var(--text-faint); }
+.status.ok    { color: var(--info); }
+.status.bad   { color: var(--alert); }
+.status.busy  { color: var(--mustard); }
+
+.conn {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.conn > * + * { margin-left: 6px; }
+.conn-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;          /* dots ARE round — legit 50% */
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.dot-unknown { background: var(--text-faint); }
+.dot-ok      { background: var(--info); box-shadow: 0 0 8px rgba(107, 136, 239, .7); }
+.dot-bad     { background: var(--alert); }
+.dot-busy    { background: var(--mustard); animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* ===== LINK + CODE ===== */
+.link {
+  color: var(--info);
+  text-decoration: none;
+  font-size: 11px;
+  align-self: flex-start;
+}
+.link:hover { text-decoration: underline; }
+
+code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--card-2);
+  color: var(--text-dim);
+  border-radius: 4px;
+}
+
+/* ===== COST METER (v0.09) — real USD, never credits ===== */
+:root { --money: #3FB950; }   /* distinct money green, separate from mustard */
+
+/* Session total bar — below the tab row, right-aligned, always visible. */
+.cost-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px var(--pad);
+  border-bottom: 1px solid var(--hairline);
+}
+.cost-bar > * + * { margin-left: 10px; }
+.cost-since { font-size: 10.5px; color: var(--text-faint); }
+.cost-total {
+  font-size: 13px; font-weight: 700;
+  color: var(--money);
+}
+.cost-total.over { color: var(--alert); }   /* crossed the spend threshold */
+.cost-reset {
+  font-size: 10.5px; color: var(--text-faint);
+  cursor: pointer; user-select: none;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.cost-reset:hover { color: var(--text-dim); text-decoration: underline; }
+
+/* ===== DOCUMENT INFO BAR (v0.13) — resolution readout + under-res flag ===== */
+.doc-info-bar {
+  padding: 6px var(--pad);
+  border-bottom: 1px solid var(--hairline);
+}
+.doc-resolution { font-size: 11px; color: var(--text-dim); }
+.under-res-flag {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--alert);          /* red — awareness, never a blocker */
+}
+
+/* Per-action estimate line (near Generate / Apply Edit / Upscale). */
+.cost-estimate {
+  font-size: 11.5px; color: var(--text-faint);
+  text-align: center; line-height: 1.4; min-height: 14px;
+}
+
+/* Editable rates table (Settings). */
+.cost-rates { display: flex; flex-direction: column; }
+.cost-rates > * + * { margin-top: 10px; }
+.rate-group { display: flex; flex-direction: column; }
+.rate-name {
+  font-size: 10.5px; color: var(--text-dim); font-weight: 600;
+  margin-bottom: 5px;
+}
+.rate-cells { display: flex; flex-wrap: wrap; }
+.rate-cell { display: flex; flex-direction: column; margin: 0 8px 6px 0; }
+.rate-cap {
+  font-size: 9.5px; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.4px;
+  margin-bottom: 2px;
+}
+.rate-input {
+  width: 62px; height: 28px;
+  padding: 0 8px; font-size: 12px;
+  border-radius: var(--r-sm);
+}
+
+/* ===== SHARED FORM (Generate / Select / Edit / Compose) ===== */
+.shared-form {
+  padding: 14px var(--pad) var(--pad);
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--hairline);
+  margin-top: 4px;
+}
+.shared-form > * + * { margin-top: var(--gap); }
+
+/* ===== UPSCALE TAB — finishing action (v0.08.1 step 3) ===== */
+/* Full-width outline-mustard button — finishing, visually distinct from the
+   mustard-filled Generate hero. (Moved here from the old bottom finishing-bar.) */
+.btn-upscale {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 46px;
+  border-radius: var(--r-hero);
+  background: transparent;
+  border: 1px solid var(--mustard);
+  color: var(--mustard);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.14s;
+}
+.btn-upscale:hover:not(.disabled) { background: rgba(254, 219, 91, .08); }
+.btn-upscale.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.btn-upscale:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <!-- =============== HEADER — TOP TIER (brand + top-level tabs) =========== -->
+    <header class="topbar">
+      <img class="brand" src="icons/Icon-52@4.png" alt="KBImage" />
+      <!-- Top-level sections. "Image" now; a future "Print" tab drops in here as
+           a sibling <div class="toptab" data-toptab="print">Print</div>, with its
+           own <nav id="subnav-print" class="subnav hidden"> row below — no rework
+           of this structure needed. data-toptab (NOT data-view) so it never
+           triggers a content-pane switch. -->
+      <div class="toptabs" role="tablist">
+        <div class="toptab active" role="tab" tabindex="0" data-toptab="image" aria-selected="true">Image</div>
+      </div>
+      <!-- Settings lives in the header gear. Reuses data-view="settings" →
+           existing showViewByClass swap. -->
+      <div id="gear-btn" class="gear" role="button" tabindex="0" data-view="settings" title="Settings" aria-label="Settings">&#9881;</div>
+    </header>
+
+    <!-- =============== SECOND TIER — operator icon row (Image) =============== -->
+    <!-- Icon-only buttons. Each keeps its ORIGINAL id + data-view, so a click
+         reuses the exact same tab switch (delegated handler → showViewByClass →
+         onTabChanged): same pane, same active toggle, model/aspect rebuild, and
+         the recall bar all keep working. class "tab" is the JS active-toggle hook;
+         "opicon" styles it as an icon. Tooltip via CSS :hover (+ title fallback).
+         A future Print tier adds a sibling <nav id="subnav-print" class="subnav
+         hidden"> with its own icons. -->
+    <nav class="subnav" id="subnav-image" role="tablist">
+      <div id="tab-generate" class="tab opicon" role="tab" tabindex="0" data-view="generate" aria-label="Generate">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.7 5.3 5.3 1.7-5.3 1.7L12 17.5l-1.7-5.3L5 10.5l5.3-1.7z"/><path d="M18.6 14.4l.65 1.95 1.95.65-1.95.65-.65 1.95-.65-1.95-1.95-.65 1.95-.65z"/></svg>
+        <span class="op-label">Generate</span>
+      </div>
+      <div id="tab-select" class="tab opicon" role="tab" tabindex="0" data-view="select" aria-label="Select">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5" stroke-dasharray="3 2.5"/></svg>
+        <span class="op-label">Select</span>
+      </div>
+      <div id="tab-edit" class="tab opicon" role="tab" tabindex="0" data-view="edit" aria-label="Edit">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l.85-3.6L15.3 6.0a1.7 1.7 0 0 1 2.4 0l.3.3a1.7 1.7 0 0 1 0 2.4L7.6 19.15z"/><path d="M14.2 7.1l2.7 2.7"/></svg>
+        <span class="op-label">Edit</span>
+      </div>
+      <div id="tab-compose" class="tab opicon" role="tab" tabindex="0" data-view="compose" aria-label="Compose">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="11" height="11" rx="1.5"/><rect x="9" y="9" width="11" height="11" rx="1.5"/></svg>
+        <span class="op-label">Compose</span>
+      </div>
+      <div id="tab-upscale" class="tab opicon" role="tab" tabindex="0" data-view="upscale" aria-label="Upscale">
+        <svg class="opicon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-7 7"/><path d="M10 20H4v-6"/><path d="M4 20l7-7"/></svg>
+        <span class="op-label">Upscale</span>
+      </div>
+    </nav>
+
+    <!-- =============== SESSION COST BAR (v0.09) =============== -->
+    <!-- Always-visible, right-aligned USD tally of real spend this session.
+         Green normally; flips alert-red when it crosses the warning threshold.
+         Real dollars — never points/credits. -->
+    <div id="cost-bar" class="cost-bar">
+      <span id="session-reset" class="cost-reset" role="button" tabindex="0" data-action="reset-session" title="Reset session total">Reset</span>
+      <span id="session-since" class="cost-since">since —</span>
+      <span id="session-total" class="cost-total">$0.00</span>
+    </div>
+
+    <!-- =============== DOCUMENT INFO BAR (v0.13) =============== -->
+    <!-- Persistent doc-resolution readout (the reference the under-res flag
+         compares against) + the event-triggered under-res flag. The flag is
+         INFORMATIONAL ONLY (awareness, never a blocker) — the user conforms a
+         flagged layer via the Upscale tab (Active Layer → Topaz). -->
+    <div id="doc-info-bar" class="doc-info-bar">
+      <span id="doc-resolution" class="doc-resolution">Document: —</span>
+      <div id="under-res-flag" class="under-res-flag hidden"></div>
+    </div>
+
+    <!-- =============== TAB CONTENT AREA =============== -->
+    <!-- One of these is visible per tab. Generate/Select/Edit then show the
+         shared form below; Settings has its own form and hides the shared. -->
+
+    <!-- GENERATE — text prompt → new image. Tab body is intentionally
+         minimal; the prompt textarea lives in the shared form below. -->
+    <section id="view-generate" class="view hidden">
+      <div class="hint-small">Type a prompt below to generate a brand-new image.</div>
+    </section>
+
+    <!-- SELECT — selection-based edits. -->
+    <section id="view-select" class="view hidden">
+      <span class="section-title">Selection Edits</span>
+      <div class="hint-small section-subtitle">
+        Make a selection in the document, then pick an edit. The result is
+        masked to the selection — original layer preserved.
+      </div>
+      <div id="pills-select-type" class="pills" data-group="select-type">
+        <div class="pill selected" role="button" tabindex="0" data-value="remove">Remove</div>
+        <div class="pill"          role="button" tabindex="0" data-value="replace">Replace</div>
+        <div class="pill"          role="button" tabindex="0" data-value="add">Add</div>
+        <div class="pill"          role="button" tabindex="0" data-value="fill">Generative Fill</div>
+        <div class="pill"          role="button" tabindex="0" data-value="extend">Extend</div>
+      </div>
+
+      <!-- Extend direction (only shown when Extend is the picked pill). -->
+      <div id="extend-dir-field" class="field hidden">
+        <span class="field-label">Extend direction</span>
+        <div id="pills-extend-dir" class="pills" data-group="extend-dir">
+          <div class="pill selected" role="button" tabindex="0" data-value="all">All Sides</div>
+          <div class="pill"          role="button" tabindex="0" data-value="left">Left</div>
+          <div class="pill"          role="button" tabindex="0" data-value="right">Right</div>
+          <div class="pill"          role="button" tabindex="0" data-value="top">Top</div>
+          <div class="pill"          role="button" tabindex="0" data-value="bottom">Bottom</div>
+        </div>
+        <div class="hint-small">Adds a 25% margin in the chosen direction(s).</div>
+      </div>
+    </section>
+
+    <!-- EDIT — whole-image edits. Compact: 3 pills in one row, one
+         dynamic helper line below that reflects the picked pill. -->
+    <section id="view-edit" class="view hidden">
+      <span class="section-title">Whole Image Edit</span>
+      <div id="pills-edit-type" class="pills" data-group="edit-type">
+        <div class="pill" role="button" tabindex="0" data-value="lighting">Lighting</div>
+        <div class="pill" role="button" tabindex="0" data-value="recolor">Recolor</div>
+        <div class="pill" role="button" tabindex="0" data-value="style">Style</div>
+      </div>
+      <div id="edit-hint" class="hint-small">Pick a starter, or just type your own whole-image instruction.</div>
+    </section>
+
+    <!-- COMPOSE — reference-driven generation + multi-image composition.
+         Three single-select operations. Refs come from the shared form
+         below. Selection (for Reference Inpaint) comes from the active
+         document, native PS tools only. -->
+    <section id="view-compose" class="view hidden">
+      <span class="section-title">Compose</span>
+      <div id="pills-compose-op" class="pills" data-group="compose-op">
+        <div class="pill selected" role="button" tabindex="0" data-value="refgen">Reference Gen</div>
+        <div class="pill"          role="button" tabindex="0" data-value="fuse">Fuse</div>
+        <div class="pill"          role="button" tabindex="0" data-value="refinpaint">Reference Inpaint</div>
+      </div>
+      <div id="compose-hint" class="hint-small">Add a reference image below, then describe the new image to generate.</div>
+    </section>
+
+    <!-- UPSCALE — finishing (Topaz). v0.08.1 step 3: the finishing controls
+         moved out of the bottom bar into this top-level tab. Same element ids
+         / data-groups → existing upscale handler + pill wiring are reused. -->
+    <section id="view-upscale" class="view hidden">
+      <span class="section-title">Finishing — Upscale</span>
+      <div class="hint-small section-subtitle">
+        Enhance resolution with Topaz, then place the result as a new layer.
+        Topaz is a finishing provider — not a generation model.
+      </div>
+      <!-- v0.12 — upscaler provider (Topaz default / Clarity Crystal). -->
+      <div class="field">
+        <span class="field-label">Upscaler</span>
+        <div id="pills-upscale-provider" class="pills" data-group="upscale-provider">
+          <div class="pill selected" role="button" tabindex="0" data-value="topaz">Topaz</div>
+          <div class="pill"          role="button" tabindex="0" data-value="clarity">Clarity Crystal</div>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">Source</span>
+        <div id="pills-upscale-source" class="pills" data-group="upscale-source">
+          <div class="pill selected" role="button" tabindex="0" data-value="composite">Composite</div>
+          <div class="pill"          role="button" tabindex="0" data-value="active-layer">Active Layer</div>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">Factor</span>
+        <div id="pills-upscale-factor" class="pills" data-group="upscale-factor">
+          <div class="pill selected" role="button" tabindex="0" data-value="2">2x</div>
+          <div class="pill"          role="button" tabindex="0" data-value="4">4x</div>
+        </div>
+      </div>
+      <!-- v0.12 — Clarity creativity (0 = fidelity). Shown only for Clarity. -->
+      <div id="clarity-creativity-field" class="field hidden">
+        <span class="field-label">Creativity (Clarity)</span>
+        <div id="pills-clarity-creativity" class="pills" data-group="clarity-creativity">
+          <div class="pill selected" role="button" tabindex="0" data-value="0">0</div>
+          <div class="pill"          role="button" tabindex="0" data-value="0.35">0.35</div>
+          <div class="pill"          role="button" tabindex="0" data-value="0.6">0.6</div>
+        </div>
+        <div class="hint-small">0 = fidelity / no invented detail (default). Higher = more generative.</div>
+      </div>
+      <!-- v0.12 — usage note (UI text only). -->
+      <div class="hint-small">
+        Upscale resizes the canvas. Best used last, on the final flattened image —
+        layers added after will match the upscaled resolution. Only upscale
+        mid-project to create a new starting point.
+      </div>
+      <div id="upscale-estimate" class="cost-estimate"></div>
+      <div id="upscale-btn" class="btn-upscale disabled" role="button" tabindex="0" data-action="upscale-topaz">Upscale (Topaz)</div>
+
+      <!-- FOUNDATION — recall bar for the Upscale tab. The shared-form recall
+           bar is hidden on this tab, so Upscale gets its own (class-only, no
+           duplicate ids). showRecallBar/hideRecallBar toggle ALL .recall-bar. -->
+      <div class="recall-bar hidden">
+        <span class="recall-label">Preview ready — Accept to keep, Re-run to discard &amp; try again.</span>
+        <div class="recall-actions">
+          <div class="btn-primary"             role="button" tabindex="0" data-action="recall-accept">Accept</div>
+          <div class="btn-secondary recall-rerun" role="button" tabindex="0" data-action="recall-rerun">Re-run</div>
+        </div>
+      </div>
+
+      <div id="upscale-status" class="status muted"></div>
+    </section>
+
+    <!-- SETTINGS — unchanged. -->
+    <section id="view-settings" class="view">
+      <div class="field">
+        <span class="field-label">Google AI Studio API key</span>
+        <div class="key-row">
+          <input
+            id="api-key"
+            class="input"
+            type="password"
+            placeholder="AIza…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="show-key" class="btn-ghost" role="button" tabindex="0" data-action="show-key">Show</div>
+        </div>
+        <a id="get-key-link" href="#" class="link" data-action="open-key-page">How to get your key</a>
+      </div>
+
+      <div class="row">
+        <div id="save-key" class="btn-primary"   role="button" tabindex="0" data-action="save-key">Save</div>
+        <div id="test-key" class="btn-secondary" role="button" tabindex="0" data-action="test-key">Test Connection</div>
+        <div class="conn">
+          <span id="conn-dot" class="dot dot-unknown"></span>
+          <span id="conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.06 — second direct provider. Independent key + status dot. -->
+      <div class="field">
+        <span class="field-label">OpenAI API key</span>
+        <div class="key-row">
+          <input
+            id="openai-api-key"
+            class="input"
+            type="password"
+            placeholder="sk-…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="show-openai-key" class="btn-ghost" role="button" tabindex="0" data-action="show-openai-key">Show</div>
+        </div>
+        <a id="get-openai-key-link" href="#" class="link" data-action="open-openai-key-page">How to get your OpenAI key</a>
+      </div>
+
+      <div class="row">
+        <div id="save-openai-key" class="btn-primary"   role="button" tabindex="0" data-action="save-openai-key">Save</div>
+        <div id="test-openai-key" class="btn-secondary" role="button" tabindex="0" data-action="test-openai-key">Test Connection</div>
+        <div class="conn">
+          <span id="openai-conn-dot" class="dot dot-unknown"></span>
+          <span id="openai-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.07 — finishing provider (Topaz). Independent key + status. -->
+      <div class="field">
+        <span class="field-label">Topaz API key</span>
+        <div class="key-row">
+          <input
+            id="topaz-api-key"
+            class="input"
+            type="password"
+            placeholder="topaz-…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="show-topaz-key" class="btn-ghost" role="button" tabindex="0" data-action="show-topaz-key">Show</div>
+        </div>
+        <a id="get-topaz-key-link" href="#" class="link" data-action="open-topaz-key-page">How to get your Topaz key</a>
+      </div>
+
+      <div class="row">
+        <div id="save-topaz-key" class="btn-primary"   role="button" tabindex="0" data-action="save-topaz-key">Save</div>
+        <div id="test-topaz-key" class="btn-secondary" role="button" tabindex="0" data-action="test-topaz-key">Test Connection</div>
+        <div class="conn">
+          <span id="topaz-conn-dot" class="dot dot-unknown"></span>
+          <span id="topaz-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.12 — Black Forest Labs (Flux.2 pro/max). Generation provider, x-key. -->
+      <div class="field">
+        <span class="field-label">Black Forest Labs (Flux) API key</span>
+        <div class="key-row">
+          <input id="bfl-api-key" class="input" type="password" placeholder="bfl-…" autocomplete="off" spellcheck="false" />
+          <div id="show-bfl-key" class="btn-ghost" role="button" tabindex="0" data-action="show-bfl-key">Show</div>
+        </div>
+        <a id="get-bfl-key-link" href="#" class="link" data-action="open-bfl-key-page">How to get your BFL key</a>
+      </div>
+      <div class="row">
+        <div id="save-bfl-key" class="btn-primary"   role="button" tabindex="0" data-action="save-bfl-key">Save</div>
+        <div id="test-bfl-key" class="btn-secondary" role="button" tabindex="0" data-action="test-bfl-key">Test Connection</div>
+        <div class="conn">
+          <span id="bfl-conn-dot" class="dot dot-unknown"></span>
+          <span id="bfl-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.12 — ClarityAI (Crystal upscaler). Bearer ap_…, second upscaler. -->
+      <div class="field">
+        <span class="field-label">ClarityAI API key</span>
+        <div class="key-row">
+          <input id="clarity-api-key" class="input" type="password" placeholder="ap_…" autocomplete="off" spellcheck="false" />
+          <div id="show-clarity-key" class="btn-ghost" role="button" tabindex="0" data-action="show-clarity-key">Show</div>
+        </div>
+        <a id="get-clarity-key-link" href="#" class="link" data-action="open-clarity-key-page">How to get your ClarityAI key</a>
+      </div>
+      <div class="row">
+        <div id="save-clarity-key" class="btn-primary"   role="button" tabindex="0" data-action="save-clarity-key">Save</div>
+        <div id="test-clarity-key" class="btn-secondary" role="button" tabindex="0" data-action="test-clarity-key">Test Connection</div>
+        <div class="conn">
+          <span id="clarity-conn-dot" class="dot dot-unknown"></span>
+          <span id="clarity-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+
+      <!-- v0.14 — Fal (aggregator lane). One key serves all Fal models. -->
+      <div class="field">
+        <span class="field-label">Fal API key (LoRA / uncensored lane)</span>
+        <div class="key-row">
+          <input id="fal-api-key" class="input" type="password" placeholder="fal-…" autocomplete="off" spellcheck="false" />
+          <div id="show-fal-key" class="btn-ghost" role="button" tabindex="0" data-action="show-fal-key">Show</div>
+        </div>
+        <a id="get-fal-key-link" href="#" class="link" data-action="open-fal-key-page">How to get your Fal key</a>
+        <div class="hint-small">Fal is an AGGREGATOR (markup; generations routed through Fal's logs). Used only for the Fal-lane models — direct engines never route through it.</div>
+      </div>
+      <div class="row">
+        <div id="save-fal-key" class="btn-primary"   role="button" tabindex="0" data-action="save-fal-key">Save</div>
+        <div id="test-fal-key" class="btn-secondary" role="button" tabindex="0" data-action="test-fal-key">Test Connection</div>
+        <div class="conn">
+          <span id="fal-conn-dot" class="dot dot-unknown"></span>
+          <span id="fal-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+      <!-- v0.14 — full Fal billing caveat lives here (Settings), with the key
+           block. The Generate tab shows only a minimal muted marker. -->
+      <div class="fal-caveat">⚠️ Fal-routed (aggregator). Cost is Fal's BILLED amount with markup — not a clean first-party per-run cost. Logged as routedVia: "fal".</div>
+
+      <!-- v0.09 — spend-warning threshold. Session total turns red past this. -->
+      <div class="field">
+        <span class="field-label">Spend warning ($)</span>
+        <div class="key-row">
+          <input id="warn-threshold" class="input" type="text" inputmode="decimal" placeholder="off" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="hint-small">When this session's total crosses this amount, the tally turns red. Blank = off.</div>
+      </div>
+
+      <!-- v0.13.x — Flux safety_tolerance (editable). FLUX.2 range 0–5 (0 strict,
+           5 most permissive). Applies to Flux.2 pro/max only. -->
+      <div class="field">
+        <span class="field-label">Flux safety tolerance (0–5)</span>
+        <div class="key-row">
+          <input id="flux-safety-tolerance" class="input" type="text" inputmode="numeric" placeholder="5" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="hint-small">0 = strict, 5 = most permissive (FLUX.2 max; 6 was FLUX.1). Flux only. If a Flux EDIT/outfit-swap (image input) is rejected at a high value, lower it here and re-run.</div>
+      </div>
+
+      <!-- v0.09 — editable per-action rates (real USD). Prices change, so the
+           user edits them here; estimates + the session total use these. -->
+      <div class="field">
+        <span class="field-label">Per-action rates (USD)</span>
+        <div id="cost-rates" class="cost-rates"></div>
+        <div id="reset-rates" class="btn-ghost" role="button" tabindex="0" data-action="reset-rates">Reset to defaults</div>
+        <div class="hint-small">
+          Generation models: $ per image at each resolution. Topaz: $ per output
+          megapixel. Real dollars — not credits. Saved on this device.
+        </div>
+      </div>
+
+      <p class="hint">
+        All three keys are stored in UXP <code>secureStorage</code> only. Google calls
+        <code>generativelanguage.googleapis.com</code>, OpenAI calls
+        <code>api.openai.com</code>, Topaz calls <code>api.topazlabs.com</code>.
+        None leave the plugin otherwise. Topaz is a FINISHING provider
+        (upscale / denoise) — not a generation model, so it does not appear
+        in the Model picker.
+      </p>
+    </section>
+
+    <!-- =============== SHARED FORM (Generate / Select / Edit) =============== -->
+    <!-- Prompt + Reference Images + Model + Resolution + Aspect + action
+         button + status + preview. ONE persistent strip — set once, applies
+         to the active tab. Hidden when Settings tab is active. -->
+    <section id="shared-form" class="shared-form hidden">
+      <div class="field">
+        <span id="prompt-label" class="field-label">Prompt</span>
+        <textarea
+          id="prompt"
+          class="textarea"
+          placeholder="Describe the image you want to generate…"
+          rows="4"
+          maxlength="1024"
+        ></textarea>
+      </div>
+
+      <!-- v0.12 — conditional negative-prompt field. DORMANT: hidden for every
+           v0.12 engine (none support it); shows only when a future model flags
+           supportsNegativePrompt (driven by updateNegativePromptVisibility on
+           model change). -->
+      <div id="negative-prompt-field" class="field hidden">
+        <span class="field-label">Negative prompt</span>
+        <textarea
+          id="negative-prompt"
+          class="textarea"
+          placeholder="What to avoid (no extra lace, limbs, trim…)"
+          rows="2"
+          maxlength="1024"
+        ></textarea>
+      </div>
+
+      <!-- v0.14 — Fal lane options. Shown ONLY when a Fal model is active. Always
+           carries the aggregator cost caveat so a Fal generation is never mistaken
+           for clean first-party cost. -->
+      <div id="fal-options" class="fal-options hidden">
+        <!-- Minimal fire-time marker; full caveat lives in Settings. -->
+        <div class="fal-marker">Fal · aggregator (billed cost)</div>
+        <div id="fal-safety-field" class="field hidden">
+          <span class="field-label">Safety checker</span>
+          <div id="pills-fal-safety" class="pills" data-group="fal-safety">
+            <div class="pill selected" role="button" tabindex="0" data-value="on">On</div>
+            <div class="pill"          role="button" tabindex="0" data-value="off">Off</div>
+          </div>
+          <div class="hint-small">Off disables Fal's NSFW checker (intimates). Your responsibility.</div>
+        </div>
+        <div id="fal-lora-field" class="field hidden">
+          <span class="field-label">LoRA weights URL (.safetensors)</span>
+          <!-- v0.14 fix — wrapped in .key-row (same structure as the working
+               Settings key inputs); a bare .input did not take focus/paste in UXP. -->
+          <div class="key-row">
+            <input id="fal-lora-url" class="input" type="text" placeholder="https://…/weights.safetensors  (blank = plain dev)" autocomplete="off" spellcheck="false" />
+          </div>
+          <span class="field-label">LoRA scale</span>
+          <div class="key-row">
+            <input id="fal-lora-scale" class="input" type="text" inputmode="decimal" placeholder="1" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="hint-small">Paste a Fal-hosted LoRA URL to apply it; blank = plain Flux dev. (Session-scoped — not persisted.)</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Reference Images</span>
+        <div class="ref-row">
+          <div id="ref-add" class="btn-ghost" role="button" tabindex="0" data-action="add-refs">+ Add</div>
+          <div id="ref-thumbs" class="ref-thumbs"></div>
+        </div>
+        <div id="ref-hint" class="hint-small">0/14 references</div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Model</span>
+        <!-- Div-based dropdown. Options populated by rebuildModelDropdown()
+             from the MODELS registry on hydrate — adding a model later is a
+             registry entry, no markup change. -->
+        <div class="dropdown" id="dd-model">
+          <div class="dd-trigger" role="button" tabindex="0" data-dd="model" aria-haspopup="listbox" aria-label="Model">
+            <span class="dd-value" id="dd-model-value">Model</span>
+            <span class="dd-caret">▾</span>
+          </div>
+          <div class="dd-menu hidden" id="dd-model-menu" role="listbox"></div>
+        </div>
+      </div>
+
+      <!-- pills-resolution + pills-aspect populated by JS from the selected
+           model's option set. -->
+      <div class="field">
+        <span class="field-label">Resolution</span>
+        <div id="pills-resolution" class="pills" data-group="resolution"></div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Aspect</span>
+        <div id="pills-aspect" class="pills" data-group="aspect"></div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Quantity (N = N× cost)</span>
+        <div class="dropdown" id="dd-quantity">
+          <div class="dd-trigger" role="button" tabindex="0" data-dd="quantity" aria-haspopup="listbox" aria-label="Quantity">
+            <span class="dd-value" id="dd-quantity-value">1</span>
+            <span class="dd-caret">▾</span>
+          </div>
+          <div class="dd-menu hidden" id="dd-quantity-menu" role="listbox">
+            <div class="dd-option selected" role="option" tabindex="0" data-dd-group="quantity" data-dd-value="1">1</div>
+            <div class="dd-option"          role="option" tabindex="0" data-dd-group="quantity" data-dd-value="2">2</div>
+            <div class="dd-option"          role="option" tabindex="0" data-dd-group="quantity" data-dd-value="3">3</div>
+            <div class="dd-option"          role="option" tabindex="0" data-dd-group="quantity" data-dd-value="4">4</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="cost-estimate" class="cost-estimate"></div>
+      <div id="generate-btn" class="btn-generate disabled" role="button" tabindex="0" data-action="generate">Generate</div>
+
+      <!-- FOUNDATION — recall bar. Hidden until a preview is pending. The
+           result layer IS the preview (non-destructive); Accept commits it,
+           Re-run discards it and runs again with the current form params.
+           Nothing commits without an explicit Accept. -->
+      <div id="recall-bar" class="recall-bar hidden">
+        <span id="recall-label" class="recall-label">Preview ready — Accept to keep, Re-run to discard &amp; try again.</span>
+        <div class="recall-actions">
+          <div id="recall-accept" class="btn-primary"   role="button" tabindex="0" data-action="recall-accept">Accept</div>
+          <div id="recall-rerun"  class="btn-secondary recall-rerun" role="button" tabindex="0" data-action="recall-rerun">Re-run</div>
+        </div>
+      </div>
+
+      <div id="generate-status" class="status muted">Save an API key in Settings to enable generation.</div>
+      <!-- v0.08.1 step 3 — finishing/Upscale controls moved to the Upscale tab
+           (see #view-upscale). The bottom finishing-bar is gone. -->
+    </section>
+
+    <!-- Non-module bundled script. All clicks go through a single delegated
+         listener on document.body — see app.js. -->
+    <script src="src/app.js"></script>
+  </body>
+</html>
+</content>

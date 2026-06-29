@@ -1,0 +1,66 @@
+{
+  "id": "com.dorelle.kbimage.v014",
+  "name": "KBImage v0.14",
+  "version": "0.14.0",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": [
+    {
+      "app": "PS",
+      "minVersion": "23.3.0"
+    }
+  ],
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "kbimage-v014-panel",
+      "label": { "default": "KBImage v0.14" },
+      "mainPath": "index.html",
+      "minimumSize": { "width": 320, "height": 480 },
+      "maximumSize": { "width": 1200, "height": 2000 },
+      "preferredDockedSize": { "width": 360, "height": 640 },
+      "preferredFloatingSize": { "width": 360, "height": 640 },
+      "icons": [
+        {
+          "width": 23,
+          "height": 23,
+          "path": "icons/Icon-52@4.png",
+          "scale": [1]
+        }
+      ]
+    }
+  ],
+  "icons": [
+    {
+      "width": 48,
+      "height": 48,
+      "path": "icons/Icon-52@4.png",
+      "scale": [1]
+    }
+  ],
+  "requiredPermissions": {
+    "network": {
+      "domains": [
+        "https://generativelanguage.googleapis.com",
+        "https://api.openai.com",
+        "https://api.topazlabs.com",
+        "https://*.topazlabs.com",
+        "https://api.bfl.ai",
+        "https://*.bfl.ai",
+        "https://api-upscale.clarityai.co",
+        "https://*.clarityai.co",
+        "https://queue.fal.run",
+        "https://fal.run",
+        "https://*.fal.run",
+        "https://*.fal.media",
+        "https://storage.googleapis.com",
+        "https://*.googleapis.com",
+        "https://*.r2.cloudflarestorage.com",
+        "https://*.cloudflarestorage.com",
+        "https://*.amazonaws.com",
+        "https://*.cloudfront.net"
+      ]
+    },
+    "localFileSystem": "request"
+  }
+}
