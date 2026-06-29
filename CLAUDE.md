@@ -28,9 +28,29 @@ Full detail for every item is in the ROADMAP section below.
 
 ## ⏸️ SESSION STATE / START HERE (last updated 2026-06-28)
 
-**Where we stopped:** v0.13 under-res flag + doc-resolution readout TESTED WORKING.
-v0.12 engines (Flux.2 + Clarity) remain IN PROGRESS (Flux untested live). The recall
-foundation (v0.11) is the last fully-tested foundation state.
+**Where we stopped:** v0.14 Fal lane (aggregator exception) IN PROGRESS — checkpointed,
+NOT fully working. v0.13 (under-res flag) is the last TESTED-working commit. v0.12
+engines remain partially tested. Recall foundation (v0.11) is the tested foundation.
+
+- **⚠️ v0.14 — FAL LANE IN PROGRESS (checkpoint tag `v0.14-fal-lane-checkpoint`):**
+  Isolated aggregator exception. 4 Fal models (provider `fal`, group `fal`, labeled
+  group in the dropdown), key-optional, async queue (submit→poll status→result on
+  `v3.fal.media`), `routedVia:"fal"` in the log, billing caveat in Settings + a muted
+  marker on the Generate tab. Auth `Authorization: Key <FAL_KEY>` (one key). Models:
+  - `fal-flux-dev` → `fal-ai/flux-lora` (FLUX.1 dev, t2i) + LoRA slot + safety toggle.
+  - `fal-flux-edit` → `fal-ai/flux-2/lora/edit` (FLUX.2 edit). **TESTED WORKING** for
+    redress: references ARE the edit base (refs-first; composite only if no refs);
+    base64 whitespace-stripped; `image_urls` capped 3; `image_size` = doc dims clamped
+    ~4MP/16-aligned/≤4096; result placed via `placeBase64AsEditedLayer` (fit-to-canvas).
+  - `fal-qwen` → `fal-ai/qwen-image`; `fal-seedream` → `…/seedream/v4/text-to-image`
+    (Fal hosts v4, NOT 4.5).
+  - **OPEN BUG:** `fal-flux-dev` returns BLACK images (safety on OR off). Prime suspect:
+    the LoRA URL field is SHARED, but flux-dev is FLUX.1 and the edit is FLUX.2 — a
+    FLUX.2 LoRA bleeding onto the FLUX.1 endpoint → incompatible → black. Check the
+    `fal request body →` log for `loras=1`; fix = clear LoRA on model switch / per-model.
+  - Carryover fixes this session: LoRA URL/scale inputs wrapped in `.key-row` (focus/
+    paste); Flux.2 (BFL) `safety_tolerance` editable (0–5, default 5); `.input` blue
+    border (no grey). All UNCOMMITTED before this checkpoint.
 
 - **v0.13 — under-res flagging + doc-resolution readout — TESTED WORKING**
   (tag `v0.13-underres-flag-working`):

@@ -61,6 +61,7 @@
   let updateCostEstimate = null;   // v0.09 cost meter — refresh estimate line
   let onRateInput = null;          // v0.09 — a rate input changed
   let onThresholdInput = null;     // v0.09 — spend-warning threshold changed
+  let onFluxSafetyInput = null;    // v0.13.x — Flux safety_tolerance changed
 
   function handleClick(e) {
     try {
@@ -156,6 +157,9 @@
               cachedClarityCreativity = Math.max(0, Math.min(1, c));
               try { console.log(TAG, "clarity-creativity →", cachedClarityCreativity); } catch (_) {}
             }
+          } else if (group.id === "pills-fal-safety") {
+            cachedFalSafetyChecker = (value === "on");   // v0.14 — enable_safety_checker
+            try { console.log(TAG, "fal safety_checker →", cachedFalSafetyChecker); } catch (_) {}
           }
           // v0.09 — any pill change (model / resolution / quantity / factor /
           // source / compose-op) can move the estimate. Refresh it.
@@ -185,6 +189,19 @@
     if (!t) return;
     if (t.id === "warn-threshold") {
       if (typeof onThresholdInput === "function") onThresholdInput(t.value);
+      return;
+    }
+    if (t.id === "flux-safety-tolerance") {
+      if (typeof onFluxSafetyInput === "function") onFluxSafetyInput(t.value);
+      return;
+    }
+    if (t.id === "fal-lora-url") {                 // v0.14 — LoRA weights URL
+      cachedFalLoraUrl = (t.value || "").trim();
+      return;
+    }
+    if (t.id === "fal-lora-scale") {               // v0.14 — LoRA scale
+      const v = Number((t.value || "").trim());
+      cachedFalLoraScale = isFinite(v) ? v : 1;
       return;
     }
     if (t.classList && t.classList.contains("rate-input")) {
@@ -348,6 +365,15 @@
       return b ? bytesToStr(b) : "";
     } catch (_) { return ""; }
   }
+  // v0.14 — Fal (FAL_KEY). One key for all Fal-lane models.
+  const FAL_KEY_NAME = "kbanana.falApiKey";
+  async function saveFalKey(k) { await ssget().setItem(FAL_KEY_NAME, strToBytes(k)); }
+  async function loadFalKey() {
+    try {
+      const b = await ssget().getItem(FAL_KEY_NAME);
+      return b ? bytesToStr(b) : "";
+    } catch (_) { return ""; }
+  }
 
   // ----- model registry -----
   // Each entry FULLY defines its own option sets. Resolution + Aspect pills
@@ -422,6 +448,62 @@
       resolutions:  ["1K", "2K"],
       aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
       maxRefImages: 8,
+    },
+    // v0.14 — FAL LANE (deliberate, isolated aggregator exception; group "fal").
+    // Provider "fal", ASYNC queue (submit → poll status → result). Text-to-image
+    // only (maxRefImages 0). Cost is Fal's BILLED (aggregator markup), not a clean
+    // first-party per-run cost — surfaced in the UI + log (routedVia:"fal").
+    "fal-flux-dev": {
+      id: "fal-flux-dev",
+      displayName: "Flux dev + LoRA (Fal)",
+      provider:    "fal",
+      group:       "fal",
+      falPath:     "fal-ai/flux-lora",
+      resolutions:  ["1K", "2K"],
+      aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
+      maxRefImages: 0,
+      falSafetyToggle: true,   // exposes enable_safety_checker (intimates unblock)
+      falLora: true,           // exposes the LoRA weights-URL + scale slot
+    },
+    // v0.14 — Fal EDIT model (image-to-image / instruction redress, VTO). Reads
+    // the CURRENT COMPOSITE as the input image (image_urls array); added refs ride
+    // along (e.g. a garment ref). Same safety toggle + LoRA slot as flux-dev t2i.
+    "fal-flux-edit": {
+      id: "fal-flux-edit",
+      displayName: "Flux dev Edit + LoRA (Fal)",
+      provider:    "fal",
+      group:       "fal",
+      falPath:     "fal-ai/flux-2/lora/edit",
+      falEdit:     true,        // image-to-image: feeds the composite into image_urls
+      resolutions:  ["1K", "2K"],
+      aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
+      maxRefImages: 4,          // source = the composite; refs = optional garment(s)
+      falSafetyToggle: true,
+      falLora: true,
+    },
+    "fal-qwen": {
+      id: "fal-qwen",
+      displayName: "Qwen (Fal)",
+      provider:    "fal",
+      group:       "fal",
+      falPath:     "fal-ai/qwen-image",
+      resolutions:  ["1K", "2K"],
+      aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
+      maxRefImages: 0,
+      falSafetyToggle: true,
+    },
+    "fal-seedream": {
+      id: "fal-seedream",
+      // NOTE: Fal hosts Seedream v4 (Seedream 4.0). No v4.5 endpoint exists on Fal
+      // (flagged); wiring the confirmed v4 path. Update if a 4.5 path appears.
+      displayName: "Seedream (Fal)",
+      provider:    "fal",
+      group:       "fal",
+      falPath:     "fal-ai/bytedance/seedream/v4/text-to-image",
+      resolutions:  ["1K", "2K", "4K"],   // Seedream native 4K (cap 4096)
+      aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
+      maxRefImages: 0,
+      falSafetyToggle: true,
     },
   };
   function defaultResFor(modelId)    { const m = MODELS[modelId]; return (m && (m.resolutions.indexOf("2K") >= 0 ? "2K" : m.resolutions[0])) || "2K"; }
@@ -739,6 +821,7 @@
     const provider = (model && model.provider) || "gemini";
     if (provider === "openai") return generateImageOpenAI(apiKey, opts);
     if (provider === "bfl")    return generateImageFlux(apiKey, opts);
+    if (provider === "fal")    return generateImageFal(apiKey, opts);
     return generateImageGemini(apiKey, opts);
   }
 
@@ -1543,7 +1626,7 @@
   //   POST https://api.bfl.ai/v1/flux-2-pro   (and /v1/flux-2-max)
   //     headers { x-key, Content-Type: application/json }
   //     body { prompt, width, height, seed?, output_format:"png",
-  //            safety_tolerance:2, input_image?, input_image_2..8? }
+  //            safety_tolerance:0–5 (editable, default 5), input_image?, input_image_2..8? }
   //     → { id, polling_url, cost, output_mp }
   //   GET <polling_url> (x-key) → { status:"Pending"|"Ready"|"Error", result:{ sample } }
   // =======================================================================
@@ -1596,12 +1679,17 @@
 
     // FLUX.2 has no negative_prompt field — there is no negative prompt for Flux.
     const dims = fluxDimsFromOpts(opts);
+    // safety_tolerance: 0 (strict) .. 5 (most permissive). FLUX.2 range is 0–5
+    // (NOT 0–6; 6 was FLUX.1). Editable in Settings (cachedFluxSafety, default 5).
+    // Docs state max 5 on the image-input/edit path too (no documented cap), but
+    // FLUX.1 capped the image path at 2 — if a live edit call rejects the chosen
+    // value, lower it in Settings (it's adjustable).
     const body = {
       prompt: opts.prompt.trim(),
       width: dims.width,
       height: dims.height,
       output_format: "png",
-      safety_tolerance: 2,
+      safety_tolerance: clampFluxSafety(cachedFluxSafety),
     };
     if (opts.seed != null && isFinite(Number(opts.seed))) body.seed = Number(opts.seed);
     // source (edit) + references → input_image, input_image_2..8 (base64).
@@ -1652,6 +1740,178 @@
     if (!imgRes.ok) throw new Error("Flux: result fetch failed (" + imgRes.status + ").");
     const buf = await imgRes.arrayBuffer();
     return { base64: bytesToBase64(buf), mime: "image/png" };
+  }
+
+  // =======================================================================
+  // FAL LANE — fifth adapter (fal.ai AGGREGATOR). v0.14. ASYNC QUEUE.
+  //
+  // DELIBERATE, ISOLATED aggregator exception — the only path to Qwen / Seedream
+  // / Flux-dev + LoRA + a controllable safety checker (BFL's hosted pro/max
+  // moderate intimates and expose no LoRA). Every Fal generation is tagged
+  // routedVia:"fal" in the session log; cost is Fal's BILLED amount (aggregator
+  // MARKUP), surfaced as such in the UI — NOT a clean first-party per-run cost.
+  //
+  // ⚠️ VERIFY shapes (printed in the build report). Auth: `Authorization: Key <FAL_KEY>`.
+  //   POST https://queue.fal.run/{falPath} → { request_id, status_url, response_url }
+  //   GET  <status_url>   → { status: IN_QUEUE | IN_PROGRESS | COMPLETED }
+  //   GET  <response_url> → { images:[{ url, width, height, content_type }], ... }
+  //   result URL on v3.fal.media (temporary — fetch immediately). No cost in response.
+  // Per-model body: flux-lora { prompt, image_size{w,h}, num_inference_steps:28,
+  //   guidance_scale:3.5, num_images:1, output_format:"png", enable_safety_checker,
+  //   loras:[{path,scale}] (omit when empty → plain dev) }; qwen { + enable_safety_checker,
+  //   negative_prompt }; seedream v4 { prompt, image_size, num_images, enable_safety_checker }.
+  // =======================================================================
+  const FAL_QUEUE_HOST = "https://queue.fal.run";
+  const FAL_POLL_MS    = 1500;
+  const FAL_TIMEOUT_MS = 240000;
+  function falAuthHeaders(apiKey) {
+    return { "Authorization": "Key " + apiKey, "Content-Type": "application/json", "Accept": "application/json" };
+  }
+  async function testConnectionFal(apiKey) {
+    if (!apiKey) return { ok: false, message: "empty key" };
+    return { ok: true, message: "saved — generate to verify (no free test endpoint)" };
+  }
+  // Resolution+aspect → {width,height} (reuses the Flux mapper; Seedream caps 4096).
+  function falDimsFromOpts(opts) {
+    const d = fluxDimsFromOpts(opts);
+    return { width: Math.min(d.width, 4096), height: Math.min(d.height, 4096) };
+  }
+  function falBuildBody(model, opts) {
+    const dims = falDimsFromOpts(opts);
+    const body = {
+      prompt: opts.prompt.trim(),
+      image_size: { width: dims.width, height: dims.height },
+      num_images: 1,
+      output_format: "png",
+    };
+    if (opts.seed != null && isFinite(Number(opts.seed))) body.seed = Number(opts.seed);
+    if (model.falSafetyToggle) body.enable_safety_checker = !!cachedFalSafetyChecker;
+
+    if (model.falEdit) {
+      // EDIT model (fal-ai/flux-2/lora/edit), image_urls = the images to edit.
+      // The EDIT BASE is what the user LOADED: if Reference Images are present,
+      // THOSE are the input (base = the first ref) — the user's redress workflow.
+      // Only if no refs are loaded do we fall back to the canvas composite.
+      // Fal decodes data: URIs server-side, BUT a malformed one (whitespace /
+      // newlines in the base64) is silently ignored → so we strip whitespace, and
+      // cap at 3 (Fal uses only the first 3).
+      const clean = function (b64) { return String(b64 || "").replace(/\s+/g, ""); };
+      const toUri = function (mime, b64) { return "data:" + (mime || "image/png") + ";base64," + clean(b64); };
+      const urls = [];
+      const refs = opts.refImages || [];
+      if (refs.length) {
+        for (let i = 0; i < refs.length; i++) {
+          if (refs[i] && refs[i].base64) urls.push(toUri(refs[i].mime, refs[i].base64));
+        }
+      } else if (opts.sourceImage && opts.sourceImage.base64) {
+        urls.push(toUri(opts.sourceImage.mime, opts.sourceImage.base64));
+      }
+      body.image_urls = urls.slice(0, 3);   // Fal edit caps at 3 images
+      body.num_inference_steps = 28;
+      body.guidance_scale = 2.5;
+      // Generate at the CANVAS's NATIVE resolution (actual doc dims), clamped to
+      // ~4MP, 16-aligned, max edge 4096 — NOT the 1K/2K long-edge from
+      // fluxDimsFromOpts. So the edit renders at canvas res instead of being
+      // upscaled to fill on placement. Falls back to the computed dims if no doc.
+      const docW = Math.round(Number(opts.sourceWidth)  || 0);
+      const docH = Math.round(Number(opts.sourceHeight) || 0);
+      if (docW > 0 && docH > 0) {
+        let ew = docW, eh = docH;
+        const MAXMP = 4 * 1024 * 1024;
+        if (ew * eh > MAXMP) { const s = Math.sqrt(MAXMP / (ew * eh)); ew = ew * s; eh = eh * s; }
+        const r16 = function (n) { return Math.max(64, Math.min(4096, Math.round(n / 16) * 16)); };
+        body.image_size = { width: r16(ew), height: r16(eh) };
+      }
+    } else if (model.falPath === "fal-ai/flux-lora") {
+      body.num_inference_steps = 28;
+      body.guidance_scale = 3.5;
+    }
+    // qwen/seedream: defaults are fine.
+
+    // LoRA slot — for any model that exposes it (both flux-dev models). Read the
+    // URL/scale DIRECTLY from the fields at submit time (not the change-event
+    // cache) so a pasted link always applies. URL present → include; blank → omit.
+    if (model.falLora) {
+      const urlEl   = $("fal-lora-url");
+      const scaleEl = $("fal-lora-scale");
+      const loraUrl = ((urlEl && urlEl.value) || cachedFalLoraUrl || "").trim();
+      if (loraUrl) {
+        const rawScale = (scaleEl && scaleEl.value != null && scaleEl.value !== "") ? scaleEl.value : cachedFalLoraScale;
+        const scale = isFinite(Number(rawScale)) ? Number(rawScale) : 1;
+        body.loras = [{ path: loraUrl, scale: scale }];
+        try { console.log(TAG, "fal LoRA applied:", loraUrl.slice(0, 80), "scale=" + scale); } catch (_) {}
+      }
+    }
+    return body;
+  }
+  async function generateImageFal(apiKey, opts) {
+    if (!apiKey) throw new Error("Missing Fal API key.");
+    if (!opts || !opts.prompt || !opts.prompt.trim()) throw new Error("Prompt is required.");
+    const modelId = opts.modelId || "fal-flux-dev";
+    const model = MODELS[modelId] || MODELS["fal-flux-dev"];
+    const path  = (model && model.falPath) || "fal-ai/flux-lora";
+    const body  = falBuildBody(model, opts);
+    if (model.falEdit && (!body.image_urls || !body.image_urls.length)) {
+      throw new Error("Edit model needs a source image — open a document to redress.");
+    }
+
+    // Exact request body, image data TRUNCATED — shows whether image_urls is
+    // present + populated, each entry's format (data: vs http), length, and a
+    // whitespace flag (a malformed data URI = silently ignored by Fal).
+    try {
+      const dbg = Object.assign({}, body);
+      if (dbg.image_urls) dbg.image_urls = dbg.image_urls.map(function (u) {
+        return (typeof u === "string")
+          ? (u.slice(0, 44) + "…[len=" + u.length + (/\s/.test(u) ? ", HAS-WHITESPACE!" : "") + "]")
+          : "(non-string)";
+      });
+      if (dbg.loras) dbg.loras = dbg.loras.map(function (l) { return { path: String(l.path).slice(0, 60) + "…", scale: l.scale }; });
+      console.log(TAG, "fal request body →", path, JSON.stringify(dbg));
+    } catch (_) {}
+
+    const submitRes = await fetch(FAL_QUEUE_HOST + "/" + path, {
+      method: "POST", headers: falAuthHeaders(apiKey), body: JSON.stringify(body),
+    });
+    if (!submitRes.ok) {
+      const t = await safeText(submitRes);
+      throw new Error("Fal submit " + submitRes.status + ": " + shortErr(t));
+    }
+    const submit = await submitRes.json();
+    const statusUrl   = submit.status_url;
+    const responseUrl = submit.response_url;
+    if (!statusUrl || !responseUrl) throw new Error("Fal: no status_url/response_url in submit response.");
+
+    // Poll status until COMPLETED (IN_QUEUE / IN_PROGRESS → keep polling).
+    const t0 = Date.now();
+    let done = false;
+    while (Date.now() - t0 < FAL_TIMEOUT_MS) {
+      await new Promise(function (r) { setTimeout(r, FAL_POLL_MS); });
+      let stRes;
+      try { stRes = await fetch(statusUrl, { method: "GET", headers: falAuthHeaders(apiKey) }); }
+      catch (e) { continue; }
+      if (!stRes.ok) continue;
+      let st; try { st = await stRes.json(); } catch (_) { continue; }
+      if (((st && st.status) || "") === "COMPLETED") { done = true; break; }
+    }
+    if (!done) throw new Error("Fal: timed out waiting for result.");
+
+    const resRes = await fetch(responseUrl, { method: "GET", headers: falAuthHeaders(apiKey) });
+    if (!resRes.ok) {
+      const t = await safeText(resRes);
+      throw new Error("Fal result " + resRes.status + ": " + shortErr(t));
+    }
+    const result = await resRes.json();
+    const img = result.images && result.images[0];
+    const url = img && img.url;
+    if (!url) throw new Error("Fal: no images[0].url in result (" + shortErr(JSON.stringify(result)) + ").");
+    try { console.log(TAG, "fal result:", String(url).slice(0, 80), "nsfw=" + JSON.stringify(result.has_nsfw_concepts)); } catch (_) {}
+
+    // Fetch the temporary result image (v3.fal.media; public, fetch now) → base64.
+    const imgRes = await fetch(url, { method: "GET" });
+    if (!imgRes.ok) throw new Error("Fal: result image fetch failed (" + imgRes.status + ").");
+    const buf = await imgRes.arrayBuffer();
+    const mime = detectImageMime(buf) || "image/png";
+    return { base64: bytesToBase64(buf), mime: mime };
   }
 
   // =======================================================================
@@ -3033,6 +3293,18 @@
   let cachedClarityKey = "";  // ClarityAI upscaler (v0.12 — scaffold only)
   let cachedUpscaleProvider = "topaz";   // v0.12 — "topaz" | "clarity"
   let cachedClarityCreativity = 0;        // v0.12 — Clarity creativity, default 0 (fidelity)
+  // v0.14 — Fal lane (aggregator exception). One key serves all Fal models.
+  let cachedFalKey = "";
+  let cachedFalSafetyChecker = true;     // enable_safety_checker; user can turn OFF (intimates unblock)
+  let cachedFalLoraUrl = "";             // LoRA .safetensors URL (empty = plain dev inference)
+  let cachedFalLoraScale = 1;            // LoRA scale
+  // Flux safety_tolerance (editable in Settings): 0 strict .. 5 most permissive.
+  // FLUX.2 range is 0–5 (6 was FLUX.1). Default 5 = BFL's most permissive.
+  let cachedFluxSafety = 5;
+  function clampFluxSafety(v) {
+    const n = Math.round(Number(v));
+    return isFinite(n) ? Math.max(0, Math.min(5, n)) : 5;
+  }
   // v0.07.1 — what the Upscale action sends to Topaz.
   //   "composite"   → readDocCompositeAsImage() — flattened snapshot of
   //                   ALL visible layers (default; what a multi-layer
@@ -3056,6 +3328,7 @@
     const p = activeProvider();
     if (p === "openai") return cachedOpenAIKey;
     if (p === "bfl")    return cachedBflKey;
+    if (p === "fal")    return cachedFalKey;
     return cachedKey;
   }
   // Reference images held in memory only. Each entry:
@@ -3115,6 +3388,13 @@
     // response returns the real cost — these rates are the pre-gen estimate, editable in Settings).
     "flux-2-pro":                     { "1K": 0.03, "2K": 0.12 },
     "flux-2-max":                     { "1K": 0.07, "2K": 0.21 },
+    // v0.14 — Fal lane (AGGREGATOR MARKUP, not clean first-party cost). Estimates;
+    // Fal exposes no cost in the response. Editable in Settings. Qwen ~$0.02/MP,
+    // Seedream ~$0.03/image, flux-dev flat-ish per image.
+    "fal-flux-dev":                   { "1K": 0.03, "2K": 0.05 },
+    "fal-flux-edit":                  { "1K": 0.04, "2K": 0.06 },
+    "fal-qwen":                       { "1K": 0.02, "2K": 0.08 },
+    "fal-seedream":                   { "1K": 0.03, "2K": 0.03, "4K": 0.03 },
     "topaz":                          { "perMP": 0.01 },
     // Clarity cost is NOT a rate — it's read off the response (cost_usd) per run.
   };
@@ -3303,6 +3583,16 @@
       warnThreshold = isFinite(v) && v > 0 ? v : 0;
     } catch (_) { warnThreshold = 0; }
   }
+  // Flux safety_tolerance — editable Settings value, persisted (same pattern).
+  const FLUX_SAFETY_KEY = "kbanana.fluxSafety";
+  async function saveFluxSafety() { try { await ssget().setItem(FLUX_SAFETY_KEY, strToBytes(String(cachedFluxSafety))); } catch (_) {} }
+  async function loadFluxSafety() {
+    try {
+      const b = await ssget().getItem(FLUX_SAFETY_KEY);
+      const s = b ? bytesToStr(b) : "";
+      cachedFluxSafety = (s === "") ? 5 : clampFluxSafety(s);
+    } catch (_) { cachedFluxSafety = 5; }
+  }
 
   // ----- assign the forward-declared hooks (called from handleClick /
   //       handleChange, which were attached at the top of the IIFE) -----
@@ -3334,6 +3624,13 @@
     warnThreshold = (raw !== "" && isFinite(v) && v > 0) ? v : 0;
     saveThreshold();
     updateSessionDisplay();
+  };
+
+  onFluxSafetyInput = function (val) {
+    cachedFluxSafety = clampFluxSafety(val);
+    const el = $("flux-safety-tolerance");
+    if (el) el.value = String(cachedFluxSafety);   // reflect the clamped value
+    saveFluxSafety();
   };
 
   function actResetSession() { resetSession(); }
@@ -3467,10 +3764,12 @@
     if (!menu) return;
     while (menu.firstChild) menu.removeChild(menu.firstChild);
     const ids = Object.keys(MODELS);
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i];
-      const m = MODELS[id];
-      if (!m) continue;
+    // v0.14 — direct engines first, then a LABELED Fal group so a Fal-routed
+    // model is never blended in with the direct ones.
+    const direct = ids.filter(function (id) { return MODELS[id] && MODELS[id].group !== "fal"; });
+    const fal    = ids.filter(function (id) { return MODELS[id] && MODELS[id].group === "fal"; });
+    const addOption = function (id) {
+      const m = MODELS[id]; if (!m) return;
       const opt = document.createElement("div");
       opt.className = "dd-option" + (id === selectedId ? " selected" : "");
       opt.setAttribute("role", "option");
@@ -3479,6 +3778,17 @@
       opt.setAttribute("data-dd-value", id);
       opt.textContent = m.displayName || id;
       menu.appendChild(opt);
+    };
+    const addLabel = function (text) {
+      const lab = document.createElement("div");
+      lab.className = "dd-group-label";
+      lab.textContent = text;
+      menu.appendChild(lab);
+    };
+    direct.forEach(addOption);
+    if (fal.length) {
+      addLabel("Fal — LoRA / uncensored (aggregator, billed-cost)");
+      fal.forEach(addOption);
     }
     setModelDropdownSelection(selectedId);
   }
@@ -3629,7 +3939,8 @@
       // no network call, never throws.
       btn.classList.add("disabled");
       const p = activeProvider();
-      const label = p === "openai" ? "OpenAI" : p === "bfl" ? "Black Forest Labs" : "Google AI Studio";
+      const label = p === "openai" ? "OpenAI" : p === "bfl" ? "Black Forest Labs"
+                  : p === "fal" ? "Fal" : "Google AI Studio";
       status.textContent = "Add the " + label + " API key in Settings to use this model.";
       status.className = "status muted";
     }
@@ -3844,6 +4155,42 @@
   }
   function setConnClarity(state, label) {
     const $dot = $("clarity-conn-dot"); const $lbl = $("clarity-conn-label");
+    if ($dot) $dot.className = "dot dot-" + state;
+    if ($lbl) $lbl.textContent = label;
+  }
+
+  // ----- v0.14 Fal key handlers (one key for all Fal-lane models) -----
+  async function actSaveFalKey() {
+    const $key = $("fal-api-key");
+    const v = (($key && $key.value) || "").trim();
+    if (!v) { setConnFal("bad", "empty key"); return; }
+    try {
+      await saveFalKey(v); cachedFalKey = v;
+      setConnFal("unknown", "saved — generate to verify");
+      refreshGenerateEnabled();
+    } catch (err) { setConnFal("bad", (err && err.message) || "save failed"); }
+  }
+  async function actTestFalKey() {
+    const $key = $("fal-api-key");
+    const v = (($key && $key.value) || "").trim();
+    if (!v) { setConnFal("bad", "empty key"); return; }
+    setConnFal("busy", "saving…");
+    const result = await testConnectionFal(v);
+    if (result.ok) { try { await saveFalKey(v); } catch (_) {} cachedFalKey = v; setConnFal("unknown", result.message); refreshGenerateEnabled(); }
+    else setConnFal("bad", result.message);
+  }
+  function actShowFalKey() {
+    const $key = $("fal-api-key"); const $btn = $("show-fal-key");
+    if (!$key || !$btn) return;
+    const isPwd = $key.type === "password";
+    $key.type = isPwd ? "text" : "password";
+    $btn.textContent = isPwd ? "Hide" : "Show";
+  }
+  async function actOpenFalKeyPage() {
+    try { await shellMod().openExternal("https://fal.ai/dashboard/keys"); } catch (_) {}
+  }
+  function setConnFal(state, label) {
+    const $dot = $("fal-conn-dot"); const $lbl = $("fal-conn-label");
     if ($dot) $dot.className = "dot dot-" + state;
     if ($lbl) $lbl.textContent = label;
   }
@@ -4691,12 +5038,18 @@
 
   function logRecordSkeleton(op, params, targetLayerId, sourceRef) {
     const now = Date.now();
+    // v0.14 — provenance tag: every record records whether it was routed via the
+    // Fal aggregator lane ("fal") or a direct first-party engine ("direct"), so
+    // provenance (v0.16) can treat Fal generations as a known category.
+    const _m = MODELS[(params && params.modelId) || ""];
+    const routedVia = (_m && _m.provider === "fal") ? "fal" : "direct";
     return {
       id: "rec-" + now.toString(36) + "-" + (++__logSeq),
       sessionId: sessionId,
       ts: now,                       // epoch ms
       tsISO: isoFromMs(now),         // convenience, human-readable
       op: op,
+      routedVia: routedVia,          // "fal" (aggregator) | "direct" (first-party)
       params: sanitizeParams(params),
       targetLayerId: (targetLayerId == null ? null : targetLayerId),
       sourceRef: sourceRef || null,
@@ -5180,6 +5533,23 @@
   async function executeGenerate(params) {
     const N = Math.max(1, Math.min(4, Number(params.quantity) || 1));
     const modelId = params.modelId || DEFAULT_MODEL_ID;
+    // v0.14 — Fal EDIT models (falEdit): the edit base is what the user LOADED.
+    // If Reference Images are loaded, those are the input (falBuildBody packs them)
+    // and we do NOT read the canvas. ONLY when no refs are loaded do we read the
+    // current composite as the edit base. Read once (before the loop) so every
+    // variation edits the same original. Direct/text-to-image models skip this.
+    const _m = MODELS[modelId];
+    if (_m && _m.falEdit && !params.sourceImage && !((params.refImages || []).length)) {
+      const ps = psMod();
+      if (!ps.app.activeDocument) throw new Error("Add a reference image, or open a document — the edit model needs an image to edit.");
+      let src = null;
+      setStatus("busy", "Reading the canvas to edit…");
+      await ps.core.executeAsModal(async function () {
+        src = await readDocCompositeAsImage();
+      }, { commandName: "KBImage — read source for Fal edit" });
+      if (!src || !src.base64) throw new Error("Read returned empty pixels for the edit source.");
+      params.sourceImage = src;
+    }
     const layerIds = [];
     let afterRef = null;
     for (let i = 1; i <= N; i++) {
@@ -5194,7 +5564,13 @@
       const img = await generateImage(activeApiKey(), params);
       setStatus("busy", N === 1 ? "Placing layer…" : "Placing layer " + i + " of " + N + "…");
       const layerName = buildBatchLayerName("Generate", i, N);
-      const layerID = await placeBase64AsLayer(img.base64, layerName);
+      // v0.14 — Fal EDIT result: place via the edited-layer path (fit-to-canvas +
+      // rasterize, no mask) so it FILLS the document instead of landing as a small
+      // native-size centered block. With Fit Canvas (output = canvas aspect) the
+      // fit is a uniform scale, no distortion. Other models keep native placement.
+      const layerID = (_m && _m.falEdit)
+        ? await placeBase64AsEditedLayer(img.base64, null, layerName, false)
+        : await placeBase64AsLayer(img.base64, layerName);
       if (layerID != null) layerIds.push(layerID);
       if (lastPlacedFileRef) afterRef = lastPlacedFileRef;   // ref the file already written
     }
@@ -5331,10 +5707,12 @@
     // call (returns here, never throws/breaks the panel).
     const _activeKey = (_activeProvider === "openai") ? cachedOpenAIKey
                      : (_activeProvider === "bfl")    ? cachedBflKey
+                     : (_activeProvider === "fal")    ? cachedFalKey
                      : cachedKey;
     if (!_activeKey) {
       const label = _activeProvider === "openai" ? "OpenAI"
                   : _activeProvider === "bfl"    ? "Black Forest Labs"
+                  : _activeProvider === "fal"    ? "Fal"
                   : "Google AI Studio";
       setStatus("bad", "Add the " + label + " API key in Settings to use this model.");
       return;
@@ -5786,6 +6164,7 @@
     // v0.12 — conditional negative-prompt field (dormant — no v0.12 engine
     // supports it; lights up only for a future model flagged supportsNegativePrompt).
     updateNegativePromptVisibility();
+    updateFalOptionsVisibility();   // v0.14 — Fal options panel (safety / LoRA / caveat)
     // v0.09 — model switched → price (and the resolution pills) changed.
     if (typeof updateCostEstimate === "function") updateCostEstimate();
   };
@@ -5799,6 +6178,21 @@
     const m = MODELS[cachedModelId] || MODELS[DEFAULT_MODEL_ID];
     const show = !!(m && m.supportsNegativePrompt);
     field.classList.toggle("hidden", !show);
+  }
+
+  // v0.14 — Fal options panel: visible ONLY when a Fal-lane model is active. The
+  // safety toggle + LoRA slot show only for models that declare them. Always
+  // surfaces the aggregator cost caveat so a Fal generation is never mistaken
+  // for clean first-party cost.
+  function updateFalOptionsVisibility() {
+    const panel = $("fal-options");
+    const m = MODELS[cachedModelId] || MODELS[DEFAULT_MODEL_ID];
+    const isFal = !!(m && m.provider === "fal");
+    if (panel) panel.classList.toggle("hidden", !isFal);
+    const loraField = $("fal-lora-field");
+    if (loraField) loraField.classList.toggle("hidden", !(isFal && m && m.falLora));
+    const safetyField = $("fal-safety-field");
+    if (safetyField) safetyField.classList.toggle("hidden", !(isFal && m && m.falSafetyToggle));
   }
 
   // Now that the action implementations exist, swap the placeholder
@@ -5824,6 +6218,10 @@
     "test-clarity-key":      actTestClarityKey,
     "show-clarity-key":      actShowClarityKey,
     "open-clarity-key-page": actOpenClarityKeyPage,
+    "save-fal-key":          actSaveFalKey,
+    "test-fal-key":          actTestFalKey,
+    "show-fal-key":          actShowFalKey,
+    "open-fal-key-page":     actOpenFalKeyPage,
     "generate":              actGenerate,
     "recall-accept":         actRecallAccept,
     "recall-rerun":          actRecallReRun,
@@ -5906,6 +6304,13 @@
       setConnClarity("ok", "saved");
     } else { setConnClarity("unknown", "no key"); }
 
+    // ----- Fal key (v0.14) -----
+    try { cachedFalKey = await loadFalKey(); } catch (_) { cachedFalKey = ""; }
+    if (cachedFalKey) {
+      const $fKey = $("fal-api-key"); if ($fKey) $fKey.value = cachedFalKey;
+      setConnFal("ok", "saved");
+    } else { setConnFal("unknown", "no key"); }
+
     refreshGenerateEnabled();
     refreshUpscaleEnabled();
 
@@ -5934,6 +6339,7 @@
     // Initial mode UI: Generate mode, prompt label/placeholder/button label.
     updateModeUi();
     updateNegativePromptVisibility();   // v0.12 — dormant (hidden) at load
+    updateFalOptionsVisibility();        // v0.14 — Fal panel hidden unless a Fal model is active
     refreshUpscaleEnabled();            // v0.12 — sets Clarity creativity-field visibility
 
     // ----- v0.09 cost meter: load rates + threshold, paint UI -----
@@ -5941,6 +6347,9 @@
     await loadThreshold();
     const $warn = $("warn-threshold");
     if ($warn) $warn.value = warnThreshold > 0 ? String(warnThreshold) : "";
+    await loadFluxSafety();
+    const $fs = $("flux-safety-tolerance");
+    if ($fs) $fs.value = String(cachedFluxSafety);
     _rebuildRatesTable();
     resetSession();          // start the PER-LAUNCH cost meter clock ("since HH:MM")
     _updateCostEstimate();

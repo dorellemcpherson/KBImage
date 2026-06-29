@@ -294,6 +294,18 @@ body {
 .input:focus,
 .textarea:focus { border-color: var(--info); }
 
+/* .input ONLY — clean BLUE border, no grey, no native inner inset/box-shadow.
+   Scoped to .input so the prompt .textarea is unchanged. Matches the link blue
+   (--info, same as "How to get your key"); focus is a slightly brighter blue. */
+.input {
+  border-color: var(--info);
+  -webkit-appearance: none;   /* remove the native grey inner border/inset */
+  appearance: none;
+  box-shadow: none;
+}
+.input:hover { border-color: var(--info); }
+.input:focus { border-color: #8AA2F6; box-shadow: none; }
+
 .textarea {
   resize: vertical;
   min-height: 78px;
@@ -420,6 +432,34 @@ body {
 }
 .dd-trigger:focus-visible,
 .dd-option:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+/* v0.14 — dropdown group header (e.g. the Fal lane), non-selectable. */
+.dd-group-label {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  padding: 9px 10px 4px;
+  border-top: 1px solid var(--hairline-2);
+  margin-top: 4px;
+}
+
+/* ===== v0.14 — FAL LANE OPTIONS (shown only when a Fal model is active) ===== */
+.fal-caveat {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--alert);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+/* v0.14 — minimal fire-time Fal marker on the Generate tab (small, muted). */
+.fal-marker {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  margin-bottom: 8px;
+}
 
 /* ===== BUTTONS (plain divs styled as buttons) ===== */
 .btn-generate {
@@ -1069,6 +1109,28 @@ code {
         </div>
       </div>
 
+      <!-- v0.14 — Fal (aggregator lane). One key serves all Fal models. -->
+      <div class="field">
+        <span class="field-label">Fal API key (LoRA / uncensored lane)</span>
+        <div class="key-row">
+          <input id="fal-api-key" class="input" type="password" placeholder="fal-…" autocomplete="off" spellcheck="false" />
+          <div id="show-fal-key" class="btn-ghost" role="button" tabindex="0" data-action="show-fal-key">Show</div>
+        </div>
+        <a id="get-fal-key-link" href="#" class="link" data-action="open-fal-key-page">How to get your Fal key</a>
+        <div class="hint-small">Fal is an AGGREGATOR (markup; generations routed through Fal's logs). Used only for the Fal-lane models — direct engines never route through it.</div>
+      </div>
+      <div class="row">
+        <div id="save-fal-key" class="btn-primary"   role="button" tabindex="0" data-action="save-fal-key">Save</div>
+        <div id="test-fal-key" class="btn-secondary" role="button" tabindex="0" data-action="test-fal-key">Test Connection</div>
+        <div class="conn">
+          <span id="fal-conn-dot" class="dot dot-unknown"></span>
+          <span id="fal-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+      <!-- v0.14 — full Fal billing caveat lives here (Settings), with the key
+           block. The Generate tab shows only a minimal muted marker. -->
+      <div class="fal-caveat">⚠️ Fal-routed (aggregator). Cost is Fal's BILLED amount with markup — not a clean first-party per-run cost. Logged as routedVia: "fal".</div>
+
       <!-- v0.09 — spend-warning threshold. Session total turns red past this. -->
       <div class="field">
         <span class="field-label">Spend warning ($)</span>
@@ -1076,6 +1138,16 @@ code {
           <input id="warn-threshold" class="input" type="text" inputmode="decimal" placeholder="off" autocomplete="off" spellcheck="false" />
         </div>
         <div class="hint-small">When this session's total crosses this amount, the tally turns red. Blank = off.</div>
+      </div>
+
+      <!-- v0.13.x — Flux safety_tolerance (editable). FLUX.2 range 0–5 (0 strict,
+           5 most permissive). Applies to Flux.2 pro/max only. -->
+      <div class="field">
+        <span class="field-label">Flux safety tolerance (0–5)</span>
+        <div class="key-row">
+          <input id="flux-safety-tolerance" class="input" type="text" inputmode="numeric" placeholder="5" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="hint-small">0 = strict, 5 = most permissive (FLUX.2 max; 6 was FLUX.1). Flux only. If a Flux EDIT/outfit-swap (image input) is rejected at a high value, lower it here and re-run.</div>
       </div>
 
       <!-- v0.09 — editable per-action rates (real USD). Prices change, so the
@@ -1129,6 +1201,35 @@ code {
           rows="2"
           maxlength="1024"
         ></textarea>
+      </div>
+
+      <!-- v0.14 — Fal lane options. Shown ONLY when a Fal model is active. Always
+           carries the aggregator cost caveat so a Fal generation is never mistaken
+           for clean first-party cost. -->
+      <div id="fal-options" class="fal-options hidden">
+        <!-- Minimal fire-time marker; full caveat lives in Settings. -->
+        <div class="fal-marker">Fal · aggregator (billed cost)</div>
+        <div id="fal-safety-field" class="field hidden">
+          <span class="field-label">Safety checker</span>
+          <div id="pills-fal-safety" class="pills" data-group="fal-safety">
+            <div class="pill selected" role="button" tabindex="0" data-value="on">On</div>
+            <div class="pill"          role="button" tabindex="0" data-value="off">Off</div>
+          </div>
+          <div class="hint-small">Off disables Fal's NSFW checker (intimates). Your responsibility.</div>
+        </div>
+        <div id="fal-lora-field" class="field hidden">
+          <span class="field-label">LoRA weights URL (.safetensors)</span>
+          <!-- v0.14 fix — wrapped in .key-row (same structure as the working
+               Settings key inputs); a bare .input did not take focus/paste in UXP. -->
+          <div class="key-row">
+            <input id="fal-lora-url" class="input" type="text" placeholder="https://…/weights.safetensors  (blank = plain dev)" autocomplete="off" spellcheck="false" />
+          </div>
+          <span class="field-label">LoRA scale</span>
+          <div class="key-row">
+            <input id="fal-lora-scale" class="input" type="text" inputmode="decimal" placeholder="1" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="hint-small">Paste a Fal-hosted LoRA URL to apply it; blank = plain Flux dev. (Session-scoped — not persisted.)</div>
+        </div>
       </div>
 
       <div class="field">
