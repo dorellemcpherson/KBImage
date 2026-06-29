@@ -463,7 +463,11 @@
       aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
       maxRefImages: 0,
       falSafetyToggle: true,   // exposes enable_safety_checker (intimates unblock)
-      falLora: true,           // exposes the LoRA weights-URL + scale slot
+      // v0.14.1 — LoRA slot DORMANT: field hidden + no `loras` sent. The LoRA field
+      // is SHARED between this FLUX.1 endpoint and the FLUX.2 edit model; a FLUX.2
+      // LoRA bleeding onto FLUX.1 produced BLACK images. Off until per-model LoRA is
+      // wired (next session). All plumbing stays in place — flip back to revive.
+      falLora: false,
     },
     // v0.14 — Fal EDIT model (image-to-image / instruction redress, VTO). Reads
     // the CURRENT COMPOSITE as the input image (image_urls array); added refs ride
@@ -479,7 +483,7 @@
       aspectRatios: [MATCH_INPUT, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
       maxRefImages: 4,          // source = the composite; refs = optional garment(s)
       falSafetyToggle: true,
-      falLora: true,
+      falLora: false,           // v0.14.1 — LoRA slot dormant (see flux-dev note); avoids the shared-field bleed.
     },
     "fal-qwen": {
       id: "fal-qwen",

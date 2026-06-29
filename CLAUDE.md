@@ -28,29 +28,49 @@ Full detail for every item is in the ROADMAP section below.
 
 ## ⏸️ SESSION STATE / START HERE (last updated 2026-06-28)
 
-**Where we stopped:** v0.14 Fal lane (aggregator exception) IN PROGRESS — checkpointed,
-NOT fully working. v0.13 (under-res flag) is the last TESTED-working commit. v0.12
-engines remain partially tested. Recall foundation (v0.11) is the tested foundation.
+**Where we stopped:** v0.14.1 Fal lane checkpoint (in the `v0.14/` FOLDER) — Fal
+generate + edit produce clean images; the LoRA bleed is fixed by making the LoRA slot
+DORMANT. NOT final. v0.13 (under-res flag) is the last TESTED-working commit.
+
+**FOLDER-PER-VERSION WORKFLOW (new this session — follow it):** each version is its own
+self-contained, independently-loadable build FOLDER (`vX.XX/` with `index.html` +
+`src/app.js` + `manifest.json` + `icons/`, its OWN plugin id e.g.
+`com.dorelle.kbimage.v014`), NEVER overwritten. Work happens IN the current version's
+folder. PATCHES (v0.14.1, .2…) are commits within that folder; MINORS (v0.15) are a NEW
+folder copied from the prior one. Root is FROZEN (legacy reference). COMMIT AFTER EACH
+STAGE. Load the version folder's `manifest.json` in UDT to test it.
+
+**NEXT OPEN ITEM (v0.14.2 candidate — do NOT build yet, user stopped):** the Fal EDIT
+model (`fal-flux-edit`) redresses WHOLE-IMAGE only — it ignores any Photoshop
+selection/mask. Wire it to respect a selection/mask so the redress can be scoped to a
+region (e.g. garment-only). This is a FEATURE GAP, not a regression — the edit works,
+it's just unscoped. (The proven selection→mask→composite core from v0.03 is the path.)
+
+**ALSO deferred:** per-model LoRA — the LoRA slot is currently DORMANT (off on both Flux
+models) to kill the FLUX.1/FLUX.2 shared-field bleed. To revive: make the LoRA field
+per-model so a FLUX.2 LoRA can't reach the FLUX.1 endpoint, then flip `falLora` back on.
 
 - **⚠️ v0.14 — FAL LANE IN PROGRESS (checkpoint tag `v0.14-fal-lane-checkpoint`):**
   Isolated aggregator exception. 4 Fal models (provider `fal`, group `fal`, labeled
   group in the dropdown), key-optional, async queue (submit→poll status→result on
   `v3.fal.media`), `routedVia:"fal"` in the log, billing caveat in Settings + a muted
   marker on the Generate tab. Auth `Authorization: Key <FAL_KEY>` (one key). Models:
-  - `fal-flux-dev` → `fal-ai/flux-lora` (FLUX.1 dev, t2i) + LoRA slot + safety toggle.
+  - `fal-flux-dev` → `fal-ai/flux-lora` (FLUX.1 dev, t2i) + safety toggle. LoRA slot
+    DORMANT (v0.14.1).
   - `fal-flux-edit` → `fal-ai/flux-2/lora/edit` (FLUX.2 edit). **TESTED WORKING** for
     redress: references ARE the edit base (refs-first; composite only if no refs);
     base64 whitespace-stripped; `image_urls` capped 3; `image_size` = doc dims clamped
     ~4MP/16-aligned/≤4096; result placed via `placeBase64AsEditedLayer` (fit-to-canvas).
   - `fal-qwen` → `fal-ai/qwen-image`; `fal-seedream` → `…/seedream/v4/text-to-image`
     (Fal hosts v4, NOT 4.5).
-  - **OPEN BUG:** `fal-flux-dev` returns BLACK images (safety on OR off). Prime suspect:
-    the LoRA URL field is SHARED, but flux-dev is FLUX.1 and the edit is FLUX.2 — a
-    FLUX.2 LoRA bleeding onto the FLUX.1 endpoint → incompatible → black. Check the
-    `fal request body →` log for `loras=1`; fix = clear LoRA on model switch / per-model.
+  - **FIXED (v0.14.1):** `fal-flux-dev` BLACK images were the SHARED LoRA field bleeding
+    a FLUX.2 LoRA onto the FLUX.1 endpoint. Fixed by making the LoRA slot DORMANT
+    (`falLora:false` on both Flux models → field hidden + no `loras` sent). Diagnosis
+    confirmed via the `fal request body →` log (`loras=`). All grey-square-chase edits
+    were `falEdit`-scoped and never touched flux-dev — no fix caused the black.
   - Carryover fixes this session: LoRA URL/scale inputs wrapped in `.key-row` (focus/
     paste); Flux.2 (BFL) `safety_tolerance` editable (0–5, default 5); `.input` blue
-    border (no grey). All UNCOMMITTED before this checkpoint.
+    border (no grey).
 
 - **v0.13 — under-res flagging + doc-resolution readout — TESTED WORKING**
   (tag `v0.13-underres-flag-working`):
