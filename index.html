@@ -732,6 +732,19 @@ code {
   color: var(--alert);          /* red — awareness, never a blocker */
 }
 
+/* Aspect field — static clarification note + live snap hint (v0.14.2) */
+.aspect-snap-note {
+  font-size: 10px;
+  color: var(--text-faint);
+  line-height: 1.4;
+  font-style: italic;
+}
+.aspect-snap-hint {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
 /* Per-action estimate line (near Generate / Apply Edit / Upscale). */
 .cost-estimate {
   font-size: 11.5px; color: var(--text-faint);
@@ -1264,7 +1277,9 @@ code {
 
       <div class="field">
         <span class="field-label">Aspect</span>
+        <span class="aspect-snap-note">Match Input &amp; Fit Canvas snap to the nearest clean ratio — result may not fill a non-standard canvas edge-to-edge.</span>
         <div id="pills-aspect" class="pills" data-group="aspect"></div>
+        <div id="aspect-snap-hint" class="aspect-snap-hint hidden"></div>
       </div>
 
       <div class="field">

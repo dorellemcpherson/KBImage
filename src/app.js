@@ -160,6 +160,8 @@
           } else if (group.id === "pills-fal-safety") {
             cachedFalSafetyChecker = (value === "on");   // v0.14 — enable_safety_checker
             try { console.log(TAG, "fal safety_checker →", cachedFalSafetyChecker); } catch (_) {}
+          } else if (group.id === "pills-aspect") {
+            updateAspectSnapHint();   // refresh snap hint when user switches aspect pill
           }
           // v0.09 — any pill change (model / resolution / quantity / factor /
           // source / compose-op) can move the estimate. Refresh it.
@@ -5241,6 +5243,33 @@
     } else {
       $flag.classList.add("hidden");
     }
+    updateAspectSnapHint();
+  }
+
+  // When Match Input or Fit Canvas is the active aspect pill, show the
+  // snapped ratio and document dims so the designer knows before generating
+  // what clean ratio the model will receive (and why the result may not be
+  // pixel-perfect to a non-standard canvas). Hidden for explicit ratio pills.
+  function updateAspectSnapHint() {
+    const $hint = $("aspect-snap-hint");
+    if (!$hint) return;
+    const modelId = cachedModelId || DEFAULT_MODEL_ID;
+    const aspect = readPills("pills-aspect", defaultAspectFor(modelId));
+    if (aspect !== MATCH_INPUT && aspect !== FIT_CANVAS) {
+      $hint.classList.add("hidden");
+      return;
+    }
+    let dw = 0, dh = 0;
+    try {
+      const doc = psMod().app.activeDocument;
+      if (doc) { dw = Math.round(Number(doc.width)); dh = Math.round(Number(doc.height)); }
+    } catch (_) {}
+    if (!dw || !dh) { $hint.classList.add("hidden"); return; }
+    const snapped = nearestSupportedAspectOriented(modelId, dw, dh);
+    const actual  = (dw / dh).toFixed(2);
+    $hint.textContent = "→ snapping to " + snapped
+      + "  (doc " + dw + "×" + dh + ", ratio " + actual + ")";
+    $hint.classList.remove("hidden");
   }
 
   // =======================================================================
@@ -6165,6 +6194,7 @@
     // supports it; lights up only for a future model flagged supportsNegativePrompt).
     updateNegativePromptVisibility();
     updateFalOptionsVisibility();   // v0.14 — Fal options panel (safety / LoRA / caveat)
+    updateAspectSnapHint();         // snapped ratio may change when aspect list rebuilds
     // v0.09 — model switched → price (and the resolution pills) changed.
     if (typeof updateCostEstimate === "function") updateCostEstimate();
   };
