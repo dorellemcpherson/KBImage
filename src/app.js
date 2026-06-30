@@ -3303,6 +3303,7 @@
   // Flux safety_tolerance (editable in Settings): 0 strict .. 5 most permissive.
   // FLUX.2 range is 0–5 (6 was FLUX.1). Default 5 = BFL's most permissive.
   let cachedFluxSafety = 5;
+  let cachedOutputFolder = "";  // empty = feature dormant (key-optional, v0.14.2)
   function clampFluxSafety(v) {
     const n = Math.round(Number(v));
     return isFinite(n) ? Math.max(0, Math.min(5, n)) : 5;
@@ -3594,6 +3595,18 @@
       const s = b ? bytesToStr(b) : "";
       cachedFluxSafety = (s === "") ? 5 : clampFluxSafety(s);
     } catch (_) { cachedFluxSafety = 5; }
+  }
+
+  // ----- output folder (v0.14.2) — path where accepted results are saved -----
+  const OUTPUT_FOLDER_KEY = "kbanana.outputFolder";
+  async function saveOutputFolder(path) {
+    try { await ssget().setItem(OUTPUT_FOLDER_KEY, strToBytes(path || "")); } catch (_) {}
+  }
+  async function loadOutputFolder() {
+    try {
+      const b = await ssget().getItem(OUTPUT_FOLDER_KEY);
+      return b ? (bytesToStr(b) || "") : "";
+    } catch (_) { return ""; }
   }
 
   // ----- assign the forward-declared hooks (called from handleClick /
@@ -4195,6 +4208,19 @@
     const $dot = $("fal-conn-dot"); const $lbl = $("fal-conn-label");
     if ($dot) $dot.className = "dot dot-" + state;
     if ($lbl) $lbl.textContent = label;
+  }
+
+  // v0.14.2 — output folder save action
+  async function actSaveOutputFolder() {
+    const $el = $("output-folder");
+    const v   = (($el && $el.value) || "").trim();
+    try {
+      await saveOutputFolder(v);
+      cachedOutputFolder = v;
+      setStatus("ok", v ? "Output folder saved." : "Output folder cleared (disabled).");
+    } catch (err) {
+      setStatus("bad", "Output folder save failed: " + ((err && err.message) || String(err)));
+    }
   }
 
   function refreshUpscaleEnabled() {
@@ -5452,6 +5478,65 @@
     };
   }
 
+  // ----- output-folder helpers (v0.14.2) -----
+
+  // Convert a Windows absolute or UNC path to a file:// URL for getEntryWithUrl.
+  function pathToFileUrl(p) {
+    if (!p) return null;
+    const s = String(p).replace(/\\/g, "/");
+    if (s.startsWith("//")) return "file:" + s;       // UNC: //server/share/...
+    if (/^[A-Za-z]:/.test(s)) return "file:///" + s; // Windows absolute: C:/...
+    return null;
+  }
+
+  // Look up a record's afterSnapshotRef from the in-memory session log by id.
+  function findAfterSnapshotRef(recId) {
+    for (let i = sessionLog.length - 1; i >= 0; i--) {
+      if (sessionLog[i] && sessionLog[i].id === recId) {
+        return sessionLog[i].afterSnapshotRef || null;
+      }
+    }
+    return null;
+  }
+
+  // Copy the accepted result image to the user-configured output folder.
+  // Throws on error — caller embeds the message in the "Accepted" status line
+  // so the accept() itself always completes even if the write fails.
+  // Filename scheme: kbimage_<op>_<YYYYMMDD>_<HHmmss>_<6-char-id>.png
+  //   e.g.  kbimage_generate_20260630_143022_c3d4e5.png
+  //         kbimage_edit_replace_20260630_143045_f6a1b2.png
+  async function writeAcceptedOutput(afterSnapshotRef, op, recordId) {
+    if (!cachedOutputFolder) return;           // dormant until folder is configured
+    if (!afterSnapshotRef) throw new Error("no result file reference");
+
+    // Build filename.
+    const now = new Date();
+    const pad = function (n) { return String(n).padStart(2, "0"); };
+    const dateStr = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate());
+    const timeStr = pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+    const shortId = String(recordId || "").replace(/[^a-z0-9]/gi, "").slice(-6)
+                    || Date.now().toString(36).slice(-6);
+    const opTag   = String(op || "op")
+                    .replace(/[^a-z0-9]/gi, "_").replace(/_+/g, "_")
+                    .replace(/^_|_$/g, "").slice(0, 20);
+    const filename = "kbimage_" + opTag + "_" + dateStr + "_" + timeStr + "_" + shortId + ".png";
+
+    // Read source from data-folder temp file (already written by placement).
+    const srcUrl   = pathToFileUrl(afterSnapshotRef);
+    if (!srcUrl) throw new Error("invalid source path: " + afterSnapshotRef);
+    const srcEntry = await fsLocal().getEntryWithUrl(srcUrl);
+    const bytes    = await srcEntry.read({ format: fmts().binary });
+
+    // Write to configured output folder.
+    const destUrl    = pathToFileUrl(cachedOutputFolder);
+    if (!destUrl) throw new Error("invalid output folder path");
+    const destFolder = await fsLocal().getEntryWithUrl(destUrl);
+    const destFile   = await destFolder.createFile(filename, { overwrite: true });
+    await destFile.write(bytes, { format: fmts().binary });
+
+    try { console.log(TAG, "[output] saved →", destUrl, filename); } catch (_) {}
+  }
+
   async function recallAccept() {
     if (!pendingRecall) return;
     const descriptor = pendingRecall.descriptor;
@@ -5481,11 +5566,16 @@
         .map(function (o) { return o.layerId; });
       try { await deleteLayersById(discardIds); } catch (_) {}
       await logFinalizeCommitted(chosen.recordId);   // only the kept option commits
+      // Output folder write (key-optional: skip silently if not configured).
+      let _outErrM = null;
+      try { await writeAcceptedOutput(findAfterSnapshotRef(chosen.recordId), descriptor && descriptor.op, chosen.recordId); }
+      catch (e) { _outErrM = (e && e.message) || "write failed"; try { console.error(TAG, "[output] multi-accept:", e); } catch (_) {} }
       if (descriptor && typeof descriptor.onSettle === "function") {
         try { await descriptor.onSettle(state, true); } catch (_) {}
       }
       setStatus("ok", "Kept your pick — " + discardIds.length
-        + " other option" + (discardIds.length === 1 ? "" : "s") + " discarded.");
+        + " other option" + (discardIds.length === 1 ? "" : "s") + " discarded."
+        + (_outErrM ? "  ⚠ Output: " + _outErrM : ""));
       return;
     }
 
@@ -5494,10 +5584,14 @@
     pendingRecall = null;
     hideRecallBar();
     await logFinalizeCommitted(recId);   // the ONLY thing that commits
+    // Output folder write (key-optional: skip silently if not configured).
+    let _outErrS = null;
+    try { await writeAcceptedOutput(findAfterSnapshotRef(recId), descriptor && descriptor.op, recId); }
+    catch (e) { _outErrS = (e && e.message) || "write failed"; try { console.error(TAG, "[output] single-accept:", e); } catch (_) {} }
     if (descriptor && typeof descriptor.onSettle === "function") {
       try { await descriptor.onSettle(state, true); } catch (_) {}
     }
-    setStatus("ok", "Accepted — kept in the document.");
+    setStatus("ok", "Accepted — kept in the document." + (_outErrS ? "  ⚠ Output: " + _outErrS : ""));
   }
 
   async function recallReRun(overrides) {
@@ -6252,6 +6346,7 @@
     "test-fal-key":          actTestFalKey,
     "show-fal-key":          actShowFalKey,
     "open-fal-key-page":     actOpenFalKeyPage,
+    "save-output-folder":    actSaveOutputFolder,
     "generate":              actGenerate,
     "recall-accept":         actRecallAccept,
     "recall-rerun":          actRecallReRun,
@@ -6380,6 +6475,10 @@
     await loadFluxSafety();
     const $fs = $("flux-safety-tolerance");
     if ($fs) $fs.value = String(cachedFluxSafety);
+    // ----- output folder (v0.14.2) -----
+    try { cachedOutputFolder = await loadOutputFolder(); } catch (_) { cachedOutputFolder = ""; }
+    const $ofld = $("output-folder");
+    if ($ofld && cachedOutputFolder) $ofld.value = cachedOutputFolder;
     _rebuildRatesTable();
     resetSession();          // start the PER-LAUNCH cost meter clock ("since HH:MM")
     _updateCostEstimate();

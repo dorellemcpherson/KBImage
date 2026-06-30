@@ -61,6 +61,6 @@
         "https://*.cloudfront.net"
       ]
     },
-    "localFileSystem": "request"
+    "localFileSystem": "fullAccess"
   }
 }

@@ -1163,6 +1163,26 @@ code {
         <div class="hint-small">0 = strict, 5 = most permissive (FLUX.2 max; 6 was FLUX.1). Flux only. If a Flux EDIT/outfit-swap (image input) is rejected at a high value, lower it here and re-run.</div>
       </div>
 
+      <!-- v0.14.2 — output folder: accepted results are copied here on accept().
+           Local or UNC path. Blank = feature dormant (key-optional). -->
+      <div class="field">
+        <span class="field-label">Output folder</span>
+        <div class="key-row">
+          <input
+            id="output-folder"
+            class="input"
+            type="text"
+            placeholder="C:\KBImage_Output  or  \\server\share\KBImage"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="hint-small">Path where accepted results are saved (local or UNC). Blank = disabled. The folder must already exist. Written only on Accept — previews and rejected runs are not saved here.</div>
+      </div>
+      <div class="row">
+        <div id="save-output-folder" class="btn-primary" role="button" tabindex="0" data-action="save-output-folder">Save</div>
+      </div>
+
       <!-- v0.09 — editable per-action rates (real USD). Prices change, so the
            user edits them here; estimates + the session total use these. -->
       <div class="field">
