@@ -14,19 +14,75 @@ Read this entire file before writing or changing any code.
 - **v0.11** — recall foundation complete ✅ DONE/TAGGED (`v0.11-recall-complete-working`)
 - **v0.12** — engine adapter wire (**Flux.2 [pro] + [max] via BFL, Clarity Crystal via ClarityAI** — the two accessible Western first-party providers) + conditional negative-prompt field. **Wire KEY-OPTIONAL / no-keys:** each engine registers in `MODELS` and shows in the dropdown regardless of whether its key is set; a keyless engine is dormant — selecting it is fine, but generating surfaces a clean "add [provider] key in Settings" message and must NEVER throw or break the panel; no key = no network call. This decouples the build from account setup (the plumbing — registry, dropdown, conditional negative-prompt field, dispatch routing — is testable with zero keys; live confirms come per-engine as keys arrive). Existing Gemini/OpenAI/Topaz engines stay untouched. **PARKED — access-gated, NOT in v0.12:** Qwen (DashScope) and Seedream (BytePlus) — both Chinese-cloud, blocked by KYC/real-name verification + no personal-account path for a US user (no key obtainable). Wire them only if access terms open up. *(GPT mask verify + 3 doc fixes ride here as a `v0.12.x` patch. Smart Object output + pre-gen resolution warning fit here or in v0.13.)*
 - **v0.13** — upscaler upgrades (scope toggle, under-res flagging, non-destructive output — both Topaz + Clarity)
-- **v0.14** — Outpaint / Expand (born recall-wrapped) — *Compose op that inherits the fresh recall machinery, cheaper to build now*
-- **v0.15** — **Print module** (Recolour two-path engine + locks, operators side, exports: `.pat` + motif→SVG + separations)
-- **v0.16** — provenance system (output folder + reject-retain, generation history, two metadata scores + provenance export) — **⚠️ DISCUSSION-GATED: do NOT build until the scoring model + legal-export are talked through (with Dorelle, and likely legal). It's the layer that READS everything else, so everything else — including Print's deterministic human operations — must exist first for the human-authorship score to count honestly.**
+- **v0.14** — Outpaint / Expand (born recall-wrapped) — *Compose op that inherits the fresh recall machinery, cheaper to build now* — ⚠️ **stale, see SESSION STATE:** this minor was redirected mid-build to the Fal lane instead (checkpoint only, not tested-working); Outpaint/Expand itself never landed.
+- **v0.15** — **FLUX additions (BFL direct tier).** STRIP all Fal lane code cleanly out of `v0.14/` (Fal was always a deliberate, isolated aggregator exception — see the v0.14 entry above and the "NO aggregators" rule below). WIRE, all BFL direct / async / key-optional:
+  - **Generation:** FLUX.2 [max], FLUX.2 [pro], FLUX.2 [klein] 9B, FLUX.2 [flex].
+  - **FLUX Tools:** FLUX Erase, FLUX Outpainting [fast], FLUX Outpainting [high], FLUX VTO (a new **cross-model** operator — available across all models, not BFL-only; routes to whichever model is currently active).
+  - **⚠️ GATE — no code until the audit is reviewed:** a Claude Code audit (Fal-strip inventory, endpoint verification for klein/flex/Erase/Outpaint/VTO, FLUX Tools mismatch check) is in progress as of this session. Its findings must be resolved before any v0.15 build work starts.
+- **v0.16** — **Print module — full locked scope.**
+  - **Tier 1 (AI operators):** (1) Extract Motif, (2) Line-art Modifier, (3) FLUX VTO — if not already shipped in v0.15, it lands here as a Print operator.
+  - **Tier 2 (deterministic new capability):** (4) Recolour with region locks (`.ase` path + pick-Pantone path, per the existing spec below), (5) Grid / Engineered Layouts, (6) Colour Intelligence (Pantone mill-safe snap + substrate-shift prediction).
+  - **Tier 3 (operators):** (7) Separate (one layer per colour), (8) Reduce Colours, (9) Repeat (half-drop / full / brick / mirror / seamless).
+  - **Tier 4 (exports):** (10) `.pat` export + production separations.
+  - **DEFERRED to a later release (NOT in v0.16):** Motif → SVG.
+- **v0.17** — provenance system (output folder + reject-retain, generation history, two metadata scores + provenance export) — **⚠️ DISCUSSION-GATED: do NOT build until the scoring model + legal-export are talked through (with Dorelle, and likely legal).** Unchanged from prior spec. It's the layer that READS everything else, so everything else — including Print's deterministic human operations — must exist first for the human-authorship score to count honestly.
 
 Reference-disable toggle attaches to whichever minor it's built alongside. Colour Intelligence
-(Pantone snap / substrate-shift) lands inside or after Print depending on the auto-snap decision.
+(Pantone mill-safe snap + substrate-shift prediction) is now LOCKED into v0.16 Print as Tier 2
+item 6 — no longer an open "inside or after Print" decision.
 *(Order rationale: provenance is LAST — it's the layer that reads everything else, and it's
 discussion-gated, not straightforward build work. Print's deterministic human operations must
 exist before the human-authorship score can count them honestly. Outpaint sits ahead of Print
-because it inherits the recall wrapper directly.)*
+because it inherits the recall wrapper directly — though in practice v0.14 was redirected to the
+Fal lane before Outpaint/Expand was built; see SESSION STATE.)*
 Full detail for every item is in the ROADMAP section below.
 
-## ⏸️ SESSION STATE / START HERE (last updated 2026-06-28)
+## ⏸️ SESSION STATE / START HERE (last updated 2026-07-06)
+
+**Snapshot:**
+- **Active build:** `v0.14/` folder.
+- **Fal lane status:** checkpoint only — NOT final, NOT tested-working. (Tags
+  `v0.14-fal-lane-checkpoint`, `v0.14.1-checkpoint` — no `-working` suffix, per the
+  versioning scheme's own rule.)
+- **Last TESTED-working tag:** `v0.13-underres-flag-working`.
+- **FLUX audit — research complete, formal report NOT yet delivered/reviewed:**
+  BFL endpoint verification (exact endpoints + request shapes for FLUX.2 [klein]
+  9B / [flex], FLUX Erase, FLUX Outpainting [fast]/[high], FLUX VTO; async
+  pattern; billing model) came back this session and was cross-checked against
+  live docs. It was used informally to wire `flux-2-klein-9b`/`flux-2-flex`
+  into `v0.15-preview` (below), but the full structured Part 1–4 report
+  (Fal-strip inventory + endpoint verification + Tools-mismatch audit + summary
+  table) originally requested has **not** been formally written up and
+  reviewed. **v0.15 build work still does not start** until that full report
+  is delivered and reviewed — the preview folder's ad hoc use of the research
+  doesn't satisfy the gate.
+- **`v0.15-preview/` folder (NEW this session — isolated demo, NOT the real
+  v0.15):** a self-contained Print-tab visual mock copied from `v0.14/` (own
+  plugin id `com.dorelle.kbimage.v015preview`). Adds a "Print" toptab + one
+  scrollable view covering all 4 locked Print tiers (10 operator cards, inert
+  by construction — no `data-action`/`data-view`/pill wiring, so nothing can
+  throw). Existing Generate/Select/Edit/Compose/Upscale are untouched
+  (`v0.14/` has zero diff — verified via `git status`). Also, for this preview
+  only: **stripped the entire Fal lane** (registry, adapter, Settings key,
+  options panel, dropdown grouping, manifest domains — `v0.14/` itself keeps
+  the full Fal lane, untouched) and **added `FLUX.2 [klein] 9B` + `FLUX.2
+  [flex]`** as key-optional dormant BFL registry entries (endpoints from the
+  audit research above), ahead of the gated real v0.15 build, per explicit
+  request. **This folder is a throwaway demo artifact, not a checkpoint on the
+  real build path** — the actual v0.15 minor (Fal strip + FLUX Tools wire) is
+  still gated behind the audit report above and has not started.
+- **Cosmetic tweaks (v0.14 + v0.15-preview only; root untouched/frozen):** app
+  icon swapped to `icons/KBImage_IconFavicon.png` (copied into both `icons/`
+  folders + both manifests repointed); mustard accent recoloured to a flat
+  `#FFF820` (`--mustard`, `--mustard-2`, `--mustard-deep` all set to the same
+  value — removes the prior gradient look on buttons/pills).
+- **Output folder (v0.14.2):** shipped and forward-ported — verified present in BOTH
+  root (`src/app.js`, built first) and `v0.14/src/app.js` (commit `f3ca314`, "forward
+  output folder feature into active build folder"). NOT a gap.
+- **Aspect ratio / snap-hint fix:** committed to ROOT only this session (`8881c59`,
+  "aspect snap hint — clarify Match Input / Fit Canvas snapping behavior") — verified
+  **NOT yet forward-ported to `v0.14/`.** This is the real known gap (the reverse of
+  the output-folder item above); carry the forward-port into the v0.15 build.
 
 **Where we stopped:** v0.14.1 Fal lane checkpoint (in the `v0.14/` FOLDER) — Fal
 generate + edit produce clean images; the LoRA bleed is fixed by making the LoRA slot
@@ -352,10 +408,10 @@ bring-your-own-key replacement for Firefly's Generative Fill.
 
 This is a clean continuation of the **kBanana** build, with the kBanana name
 dropped. It was stood up fresh from the last known-good build because a previous
-copy (`C:\Users\dorel\KBImage_plus`) rendered stripped (no CSS, no tabs, no
+copy (`C:\Users\dorelle.mcpherson\KBImage_plus`) rendered stripped (no CSS, no tabs, no
 scroll) and was abandoned.
 
-- **Source of this build:** `C:\Users\dorel\kBanana\v0.08\` — the working,
+- **Source of this build:** `C:\Users\dorelle.mcpherson\kBanana\v0.08\` — the working,
   full-interface build that loads in Photoshop with the complete UI. NOTE: the
   folder was labelled "v0.08", but its contents had silently absorbed the
   v0.09 and v0.10 work (session cost bar marked `(v0.09)` in the markup, Compose +
@@ -367,7 +423,7 @@ scroll) and was abandoned.
   A new id means UDT treats it as a distinct plugin — it will NOT collide with any
   existing kBanana plugins, and it gets a FRESH `secureStorage` namespace (so API
   keys must be re-entered once in the new panel; nothing carries over from kBanana).
-- **Do NOT** read from or copy out of `C:\Users\dorel\KBImage_plus` — it is the bad copy.
+- **Do NOT** read from or copy out of `C:\Users\dorelle.mcpherson\KBImage_plus` — it is the bad copy.
 - **Internal string note:** `secureStorage` key names (`kbanana.apiKey`,
   `kbanana.openaiApiKey`, `kbanana.topazApiKey`, `kbanana.rates`, etc.) and the log
   TAG still read "kbanana" by design — they are invisible internal identifiers, and a
@@ -518,7 +574,7 @@ plugin in the UXP Developer Tool. The **Reload** button does NOT reliably pick u
 ## How to load KBImage in UDT
 
 1. Open the **UXP Developer Tool** (UDT) with Photoshop (v25 or v26) running.
-2. **Add Plugin** → select `C:\Users\dorel\KBImage\manifest.json`.
+2. **Add Plugin** → select `C:\Users\dorelle.mcpherson\KBImage\manifest.json`.
 3. Click **Load** next to "KBImage" (id `com.dorelle.kbimage`).
 4. In Photoshop, the panel appears under **Plugins → KBImage** (dock it).
 5. Confirm the full interface renders: header logo + 5 tabs (Generate / Select /
