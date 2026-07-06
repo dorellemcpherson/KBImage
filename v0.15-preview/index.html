@@ -11,27 +11,27 @@
     <style>
 :root {
   /* ---- Mockup palette (kbanana-mockup-v2.html) ---- */
-  --ground:       #0E0E10;   /* panel background */
+  --ground:       #232323;   /* panel background */
   --card:         #18181B;
   --card-2:       #1F1F23;
   --hairline:     #2A2A2F;
   --hairline-2:   #34343A;
   --hairline-3:   #48484f;
 
-  --text:         #F4F4F5;
-  --text-dim:     #A1A1A6;
-  --text-faint:   #6B6B71;
+  --text:         #F2EDE1;
+  --text-dim:     #F2EDE1;
+  --text-faint:   #F2EDE1;
 
-  --mustard:      #FFF820;
-  --mustard-2:    #FFF820;   /* gradient top */
-  --mustard-deep: #FFF820;   /* gradient bottom */
+  --mustard:      #FF8200;
+  --mustard-2:    #FF8200;   /* gradient top */
+  --mustard-deep: #FF8200;   /* gradient bottom */
   --ink:          #1A1505;   /* text on mustard */
 
   --info:         #6B88EF;   /* connected dot, links, focus */
   --alert:        #EB5757;   /* errors, not-connected dot */
 
   /* ---- Radii (fixed px; no % on pills — % makes ellipses) ---- */
-  --r-pill:  15px;   /* .pill (30px tall) → round ends, flat sides */
+  --r-pill:  6px;   /* .pill (30px tall) → soft square corners, less capsule-like */
   --r-input: 12px;
   --r-hero:  23px;   /* full-pill generate button (~46px tall) */
   --r-btn:   17px;   /* Save / Test buttons */
@@ -837,7 +837,7 @@ code {
   <body>
     <!-- =============== HEADER — TOP TIER (brand + top-level tabs) =========== -->
     <header class="topbar">
-      <img class="brand" src="icons/Icon-52@4.png" alt="KBImage" />
+      <img class="brand" src="icons/KBImage_IconFavicon.png" alt="KBImage" />
       <!-- Top-level sections. v0.15-preview — Print landed here as a sibling
            toptab. Unlike Image, Print has no icon subnav of its own: it's one
            scrollable view (#view-print), so its toptab drives showToptab()

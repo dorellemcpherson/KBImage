@@ -71,11 +71,40 @@ Full detail for every item is in the ROADMAP section below.
   request. **This folder is a throwaway demo artifact, not a checkpoint on the
   real build path** — the actual v0.15 minor (Fal strip + FLUX Tools wire) is
   still gated behind the audit report above and has not started.
-- **Cosmetic tweaks (v0.14 + v0.15-preview only; root untouched/frozen):** app
-  icon swapped to `icons/KBImage_IconFavicon.png` (copied into both `icons/`
-  folders + both manifests repointed); mustard accent recoloured to a flat
-  `#FFF820` (`--mustard`, `--mustard-2`, `--mustard-deep` all set to the same
-  value — removes the prior gradient look on buttons/pills).
+- **Cosmetic tweaks — v0.14 and v0.15-preview have DIVERGED (root untouched/
+  frozen throughout):**
+  - **Shared (both folders):** plugin-list icon repointed to
+    `icons/KBImage_IconFavicon.png` in both `manifest.json` files (icon file
+    copied into both `icons/` subfolders).
+  - **`v0.14/` stopped here:** mustard accent flattened to a flat `#FFF820`
+    (`--mustard`/`--mustard-2`/`--mustard-deep` all the same value — no more
+    gradient on buttons/pills). Background, text colours, pill radius, and the
+    in-panel header `<img>` (still `icons/Icon-52@4.png`) are all UNCHANGED
+    originals.
+  - **`v0.15-preview/` kept iterating past that** (all in the same
+    `:root` block in `v0.15-preview/index.html`, CSS-only, no logic touched):
+    - `--mustard`/`--mustard-2`/`--mustard-deep`: `#FFF820` → **`#FF8200`**
+      (orange, not yellow).
+    - `--ground` (panel body background, `html,body` only — inputs/dropdowns
+      use separate literal `#000`/`#161618` and were never touched):
+      `#0E0E10` → `#545454` → **`#232323`** (two rounds; darker was requested
+      after the mid-grey read as "too light").
+    - `--text`/`--text-dim`/`--text-faint`: flattened to a single
+      **`#F2EDE1`** (was `#F4F4F5`/`#A1A1A6`/`#6B6B71` — three shades of
+      hierarchy collapsed to one value, matching how the mustard gradient was
+      flattened earlier). `--ink` (dark text-ON-mustard, `#1A1505`) was
+      deliberately left alone — flattening it too would make button/pill
+      labels unreadable against the new orange.
+    - `--r-pill`: `15px` (full capsule on a 30px-tall `.pill`) → **`6px`**
+      (soft square corners, matching the `--r-sm` card-radius scale).
+    - In-panel header `<img class="brand">` src: `icons/Icon-52@4.png` →
+      `icons/KBImage_IconFavicon.png` (the `.brand` CSS already sized it at
+      28×28 with `object-fit: cover` — no layout change needed).
+  - **Net effect:** `v0.15-preview/` is now a visually distinct dark-grey/
+    orange/cream variant; `v0.14/` still looks like the original near-black/
+    yellow panel (plus the one flat-mustard tweak). If the Print-tab UI or any
+    future v0.15-preview styling gets promoted into the real v0.14/v0.15
+    build, these exact values are the source of truth — don't re-derive them.
 - **Output folder (v0.14.2):** shipped and forward-ported — verified present in BOTH
   root (`src/app.js`, built first) and `v0.14/src/app.js` (commit `f3ca314`, "forward
   output folder feature into active build folder"). NOT a gap.
