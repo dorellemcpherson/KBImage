@@ -1,0 +1,62 @@
+{
+  "id": "com.komar.kbimage.printswap",
+  "name": "KBImage Print Swap",
+  "version": "0.20.5",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": [
+    {
+      "app": "PS",
+      "minVersion": "23.3.0"
+    }
+  ],
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "printswap-panel",
+      "label": { "default": "KBImage Print Swap" },
+      "mainPath": "index.html",
+      "minimumSize": { "width": 320, "height": 480 },
+      "maximumSize": { "width": 1200, "height": 2000 },
+      "preferredDockedSize": { "width": 360, "height": 640 },
+      "preferredFloatingSize": { "width": 360, "height": 640 },
+      "icons": [
+        {
+          "width": 23,
+          "height": 23,
+          "path": "icons/panel.png",
+          "scale": [1, 2],
+          "theme": ["all"]
+        }
+      ]
+    }
+  ],
+  "icons": [
+    {
+      "width": 48,
+      "height": 48,
+      "path": "icons/plugin.png",
+      "scale": [1, 2],
+      "theme": ["all"]
+    }
+  ],
+  "requiredPermissions": {
+    "network": {
+      "domains": [
+        "https://queue.fal.run",
+        "https://fal.run",
+        "https://*.fal.run",
+        "https://rest.alpha.fal.ai",
+        "https://*.fal.ai",
+        "https://fal.media",
+        "https://*.fal.media",
+        "https://storage.googleapis.com"
+      ]
+    },
+    "launchProcess": {
+      "schemes": ["https"],
+      "extensions": []
+    },
+    "localFileSystem": "request"
+  }
+}

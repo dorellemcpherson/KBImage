@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>KBImage Print Swap</title>
+    <!-- CSS is inline (not an external <link>): UDT reloads the entry HTML live
+         but does not reliably refresh linked sub-resources. Edit styles here. -->
+    <style>
+/* =====================================================================
+   Photoshop-native panel look. UXP rules: no flex gap, no position
+   fixed/sticky, no pseudo elements, no % radii on pills — spacing is
+   margins/padding.
+   ===================================================================== */
+:root {
+  /* Photoshop "Dark" brightness (the default). */
+  --bg:       #535353;   /* panel background */
+  --bar:      #474747;   /* header strips, section bars, info bars */
+  --inset:    #434343;   /* inputs, dropdowns, unselected segments/chips */
+  --raise:    #6a6a6a;   /* secondary buttons */
+  --line:     #3a3a3a;   /* dividers */
+  --line2:    #7d7d7d;   /* control borders */
+  --text:     #f2f2f2;   /* main text */
+  --dim:      #d2d2d2;   /* labels, hints, secondary text */
+  --selbg:    #e8e8e8;   /* selected segment / chip */
+  --selfg:    #1e1e1e;
+  /* accent synced to the logo (charcoal #202020, cream #F0ECE0,
+     orange #FC741C). Orange on the gray panel is only 2.8:1, so it is used for
+     fills, focus rings and status dots, never for
+     small text. Dark text on orange (5.9:1); white on it would fail (2.7:1). */
+  --accent:   #fc741c;   /* the ONE primary button per view */
+  --accent-h: #fd8a3e;   /* primary hover (slightly lighter orange) */
+  --accentfg: #202020;   /* charcoal text on orange */
+  --link:     #ffc9a3;   /* text links: light peach (5.2:1 on --bg), readable, no blue */
+  --alert:    #ff7b72;   /* errors / over-threshold (readable on #535353) */
+
+  --pad: 12px;
+  --gap: 12px;
+}
+* { box-sizing: border-box; }
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Adobe Clean", "Segoe UI", -apple-system, system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+body {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+/* ===== HEADER ROW — logo + name + view buttons (32px) ===== */
+.topbar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 6px 0 var(--pad);
+  border-bottom: 1px solid var(--line);
+}
+.topbar > * + * { margin-left: 10px; }   /* replaces flex gap (UXP ignores gap) */
+.brand {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  display: block;
+  flex: 0 0 auto;
+  object-fit: cover;
+}
+/* Gear → Settings: plain 16px line glyph, dim; active = inset tile. */
+.gear {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.gear:hover { color: var(--text); background: var(--inset); }
+.gear.active { color: var(--text); background: var(--inset); }
+.gear:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* Print Swap · Settings: a two-part toggle (the .pills component of step 4's piping toggle)
+   on its own row under the title; the active view is the selected side. */
+.view-tabs { padding: 6px var(--pad); border-bottom: 1px solid var(--line); }
+.view-tabs .pill { flex: 1 1 0; }
+.input.locked { opacity: 0.6; }
+/* ===== VIEWS ===== */
+.view {
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+}
+.view > * + * { margin-top: var(--gap); }
+.hidden { display: none !important; }
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.row > * + * { margin-left: 8px; }
+.field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.field > * + * { margin-top: 4px; }
+.field-label {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--dim);
+  font-weight: 400;
+}
+.hint-small { font-size: 11px; line-height: 15px; color: var(--dim); }
+.hint {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--dim);
+  margin: 0;
+}
+/* ===== INPUTS — 28px, inset fill, 1px border, 3px corners ===== */
+.input,
+.textarea {
+  width: 100%;
+  background: var(--inset);
+  color: var(--text);
+  border: 1px solid var(--line2);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  outline: none;
+  caret-color: var(--text);
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* Text fields: the panel's input fill and ONE 1px border, flush on all four sides.
+   No padding: in Photoshop a CSS padding moves the native field inside its border
+   (a line hanging off the bottom / left). Without a CSS fill it paints black. */
+.input {
+  display: block;
+  width: 100%;
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+  background: var(--inset);
+  border: 1px solid var(--line2);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.input::placeholder,
+.textarea::placeholder { color: var(--dim); }
+.textarea:hover { border-color: #969696; }
+.input:focus,
+.textarea:focus { border-color: var(--accent); box-shadow: none; }
+.textarea {
+  resize: vertical;
+  min-height: 84px;
+  max-height: 200px;
+  padding: 6px 8px;
+}
+/* ===== SEGMENTED CONTROLS (.pills) — one bordered strip, 26px ===== */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--inset);
+}
+.pills .pill { margin: 0; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.pills .pill + .pill { border-left: 1px solid var(--line2); }
+.ps-piping-dir-row { display: flex; align-items: center; margin: 2px 0 4px; }
+.ps-piping-dir-row > .ps-cost { flex: 1 1 auto; margin: 0 8px 0 0; }
+.pills.pills-small { flex: 0 0 auto; }
+.pills-small .pill { height: 20px; padding: 0 8px; font-size: 11px; flex: 0 0 auto; }
+.ps-tone-row { display: flex; align-items: center; margin: 2px 0; }
+.ps-tone-label { width: 64px; flex: 0 0 auto; margin: 0; }
+.ps-gray-row { display: flex; align-items: center; margin: 2px 0 4px; }
+.ps-gray-swatch { flex: 0 0 auto; width: 28px; height: 28px; margin-right: 6px; border: 1px solid var(--line2); border-radius: 3px; background: #BABABA; }
+.ps-gray-row > .input { flex: 1 1 auto; }
+.pills.ps-gray-chips { display: inline-flex; margin: 0 0 6px; }
+.ps-trim-color-row { margin: 2px 0 4px; }
+.ps-trim-color-name { font-size: 11px; color: var(--dim); margin: 2px 0 2px; }
+.ps-gray-swatch.ps-swatch-none { background: transparent; }
+.input.ps-bad { border-color: var(--alert); color: var(--alert); }
+.ps-trim-linked { opacity: 0.45; }                       /* BUTTON while it follows PIPING */
+.pills.ps-disabled .pill { cursor: default; }
+.ps-trim-link { margin: 2px 0 4px; }
+/* Each step: options, Adjust, then the main button at the bottom right with its price under it. */
+.ps-main { display: flex; flex-direction: column; align-items: flex-end; }
+.ps-main > .ps-cost { margin-top: 3px; text-align: right; }
+.ps-main > .ps-parts-arm { text-align: left; color: var(--alert); }
+.btn-primary.disabled { opacity: 0.45; cursor: not-allowed; }
+.ps-merged-note, .ps-step-note { font-size: 11px; line-height: 14px; color: var(--alert); text-align: right; margin-top: 3px; }
+.ps-dirty { font-size: 11px; line-height: 14px; color: var(--accent); text-align: right; }
+.ps-backup-note { font-size: 11px; line-height: 14px; color: var(--alert); margin-top: 4px; }
+.ps-trim-block > * + * { margin-top: 8px; }
+.ps-trim-block + .ps-trim-block { margin-top: 14px; }
+.pill:hover { background: #4d4d4d; }
+.pill.selected {
+  background: var(--selbg);
+  color: var(--selfg);
+  font-weight: 600;
+  box-shadow: none;
+}
+.pill.selected:hover { background: var(--selbg); }
+.pill:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* Print Swap part list: one full-width row per part (name · found). */
+#pills-ps-parts { display: block; border: 0; border-radius: 0; overflow: visible; background: transparent; }
+#pills-ps-parts .pill {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  margin: 0 0 2px 0;
+  border: 1px solid var(--line2);
+  border-radius: 3px;
+  background: var(--inset);
+}
+#pills-ps-parts .pill + .pill { border-left: 1px solid var(--line2); }
+#pills-ps-parts .pill.selected { background: var(--selbg); color: var(--selfg); }
+.ps-part-state { color: var(--dim); font-weight: 400; }
+.ps-part-state.ps-part-missing { color: var(--alert); }
+#pills-ps-parts .pill.selected .ps-part-state { color: var(--selfg); }
+.ps-parts-head { font-size: 11px; color: var(--dim); margin: 8px 0 3px; }
+#pills-ps-parts .ps-part-row .ps-check-box { margin-right: 6px; cursor: pointer; }
+#pills-ps-parts .ps-check-fixed { visibility: hidden; }
+.ps-part-out { display: flex; align-items: center; padding: 3px 8px; }
+.ps-part-out .ps-part-add { margin-left: auto; }
+.ps-part-muted { color: var(--dim); }
+/* Print Swap trims: tolerance slider fills the field. */
+/* Print Swap — collapsible steps. No flex gap, no pseudo elements, no fixed/sticky. */
+.ps-status-top { margin: 8px 0 4px; }
+.ps-step { margin: 0 -12px; }
+.ps-step-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 30px;
+  padding: 0 var(--pad);
+  background: var(--bar);
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  user-select: none;
+}
+#ps-step-9 .ps-step-head { border-bottom: 1px solid var(--line); }
+.ps-check { display: flex; flex-direction: row; align-items: center; font-size: 12px; color: var(--text); }
+.ps-check input { margin: 0 6px 0 0; }
+.ps-step-head:hover { background: #4d4d4d; }
+.ps-step-open .ps-step-head { background: #5c5c5c; }
+.ps-step-num { color: var(--dim); margin-right: 8px; font-size: 12px; }
+.ps-step-name { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600; color: var(--text); }
+.ps-step-state { font-size: 11px; color: var(--dim); }
+.ps-step-state.ps-step-missing { color: var(--alert); }
+/* money only: price lines of paid buttons, the Charged badge, the paid total after done ✓ */
+.ps-price, .ps-cost.ps-price, .ps-main > .ps-cost.ps-price { color: #39FF14; font-weight: bold; }
+.ps-charged { font-size: 11px; line-height: 14px; margin-top: 4px; }
+.ps-step-paid { font-size: 11px; }
+.ps-lines { white-space: pre-line; }
+.ps-up-size { font-size: 12px; margin: 0 0 2px; }
+.ps-redo { margin-right: 10px; }                 /* Redo on a done step */
+.ps-reset-home { margin: 0 0 8px; }
+.ps-other-head { font-size: 11px; font-weight: 600; color: var(--text); }      /* Other builder */
+.ps-other-list { display: flex; flex-direction: row; flex-wrap: wrap; }
+.ps-other-list > .ps-check { width: 50%; }
+.ps-other-parts { max-height: 220px; overflow-y: auto; }
+.ps-reset-home > .ps-reset-confirm { margin-top: 8px; }
+.ps-step > .ps-reset-confirm { margin: 8px var(--pad); }
+.ps-confirm-text { font-size: 12px; line-height: 16px; color: var(--text); }
+.ps-redo-hot { color: var(--accentfg); background: var(--accent); padding: 0 6px; border-radius: 2px; font-weight: 600; }
+.ps-garment-note { padding: 6px var(--pad); color: var(--alert); }
+.ps-gtype-missing { padding: 6px var(--pad); color: var(--text); }
+/* Fal render progress bar (moved under the button that started the run) */
+.fal-prog { margin-top: 6px; }
+.fal-prog-track { height: 3px; background: var(--inset); border-radius: 2px; overflow: hidden; }
+.fal-prog-fill { height: 3px; width: 0; background: var(--accent); }
+.fal-prog-label { font-size: 11px; line-height: 14px; color: var(--dim); margin-top: 3px; }
+.fal-prog-log { font-size: 10px; line-height: 13px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fal-prog-err .fal-prog-fill { background: var(--alert); }
+.fal-prog-err .fal-prog-label { color: var(--alert); }
+/* print thumbnail (step 7) */
+.ps-print-thumb img { display: block; border: 1px solid var(--line2); }
+.ps-print-thumb .ps-cost { margin-top: 4px; white-space: pre-line; }
+.ps-divider { height: 0; border-top: 1px solid var(--line); margin-top: 12px; margin-bottom: 4px; }
+.ps-angle { color: var(--text); }
+.ps-group-head { font-size: 11px; line-height: 14px; font-weight: 600; color: var(--text); letter-spacing: 0.5px; }
+.ps-row-label { flex: 0 0 auto; width: 88px; font-size: 11px; color: var(--dim); }
+.dropdown.ps-part-dd { flex: 1 1 auto; width: auto; min-width: 0; }                      /* the Part picker */
+.ps-part-label { flex: 0 0 auto; }
+.ps-part-on { color: var(--accent); }                                             /* the selected part, as Redo */
+#ps-step-body-7 .btn-row > .ps-cost + .ps-cost { margin-left: 8px; }   /* file types, then the print name */
+.ps-step-body { padding: 10px var(--pad) 12px; border-top: 1px solid var(--line); }
+.ps-step-body > * + * { margin-top: 8px; }
+.ps-cost { font-size: 11px; line-height: 14px; color: var(--dim); }
+/* garment type checklist (step 6). */
+.ps-checklist { margin-top: 6px; }
+.ps-check { display: flex; flex-direction: row; align-items: center; padding: 2px 0; cursor: pointer; user-select: none; font-size: 11px; color: var(--dim); }
+.ps-check.on { color: var(--text); }
+.ps-check-box { display: inline-block; width: 12px; height: 12px; line-height: 11px; text-align: center; font-size: 10px;
+  border: 1px solid var(--line2); border-radius: 2px; margin-right: 6px; background: var(--inset); color: var(--accent); }
+.ps-check:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ps-trim-sam { margin-top: 8px; }
+.ps-step-body > .ps-cost { margin-top: 3px; }
+.ps-step-body > .ps-recall-anchor { margin-top: 0; }
+#ps-recall-bar { margin-top: 6px; padding: 8px; }
+#ps-recall-bar .recall-label { display: none; }
+.ps-toggle { display: inline-block; font-size: 11px; color: var(--link); cursor: pointer; user-select: none; }
+.ps-settings > * + * { margin-top: 8px; }
+.ps-settings { padding-left: 8px; border-left: 2px solid var(--line); }
+.ps-edges { margin-top: 8px; padding: 6px 8px; background: var(--bar); border-radius: 4px; }
+.ps-edges > * + * { margin-top: 6px; }
+.ps-save-hand-edits-row { margin: 0 0 8px; }
+.ps-range { display: block; width: 100%; }
+/* ===== DROPDOWNS (garment type — div-based; no <select>) ===== */
+.dropdown { position: relative; width: 100%; }
+.dd-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--inset);
+  border: 1px solid var(--line2);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.dd-trigger:hover { border-color: #969696; }
+.dd-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dd-caret { margin-left: 8px; color: var(--dim); font-size: 10px; }
+.dd-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30px;
+  z-index: 50;
+  background: var(--bar);
+  border: 1px solid var(--line2);
+  border-radius: 3px;
+  padding: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+}
+.dd-option {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 2px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.dd-option:hover { background: var(--accent); color: var(--accentfg); }
+.dd-option.selected {
+  background: var(--selbg);
+  color: var(--selfg);
+  font-weight: 600;
+}
+.dd-trigger:focus-visible,
+.dd-option:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* Accept (recall bars) — primary style at 28px. */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accentfg);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-primary:hover { background: var(--accent-h); }
+/* Secondary: 28px, raised grey, 1px border, 4px corners. */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--raise);
+  border: 1px solid var(--line2);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-secondary:hover { background: #747474; }
+/* Small utility buttons (Show, Reset to defaults) — compact secondary. */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  background: var(--raise);
+  border: 1px solid var(--line2);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-ghost:hover:not(.disabled) { background: #747474; }
+.btn-ghost.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Settings: the Save button is compact. */
+#view-settings .btn-primary {
+  background: var(--raise);
+  border: 1px solid var(--line2);
+  color: var(--text);
+  font-weight: 400;
+}
+#view-settings .btn-primary:hover { background: #747474; }
+.btn-generate:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: 1px;
+}
+/* ===== RECALL BAR (Accept / Re-run / Discard) ===== */
+.recall-bar {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--bar);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+}
+.recall-label {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.recall-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.recall-actions .btn-primary { margin-right: 8px; }
+.recall-actions .recall-discard { margin-left: 8px; }   /* styled like Re-run */
+/* ===== KEY ROW ===== */
+/* Field + button: the field fills the space left of the button, 6px apart (as in a
+   button row), both 28px tall. */
+.key-row {
+  display: flex;
+  align-items: center;
+}
+.key-row > * + * { margin-left: 6px; }
+.key-row .input { width: 100%; flex: 1 1 auto; min-width: 0; }
+.key-row .btn-ghost { height: 28px; flex: 0 0 auto; }
+/* ===== STATUS + CONNECTION ===== */
+.status {
+  font-size: 12px;
+  min-height: 16px;
+  line-height: 16px;
+}
+.status.muted { color: var(--dim); }
+.status.ok    { color: var(--text); }   /* results: normal text */
+.status.warn  { color: var(--accent); } /* something to look at, or a step to do first */
+.status .status-details { margin-top: 3px; color: var(--dim); font-size: 11px; white-space: normal; }
+.status.bad   { color: var(--alert); }
+.status.busy  { color: var(--text); }
+.status.ask   { color: var(--text); }    /* a confirm waiting: normal text, red is for errors */
+.conn {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.conn > * + * { margin-left: 6px; }
+.conn-label {
+  font-size: 11px;
+  color: var(--dim);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;          /* dots ARE round — legit 50% */
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.dot-unknown { background: #8a8a8a; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+/* ===== LINK + CODE ===== */
+.link {
+  color: var(--link);
+  text-decoration: none;
+  font-size: 11px;
+  align-self: flex-start;
+}
+.link:hover { text-decoration: underline; }
+/* Small text actions (Redo) in the panel accent, lighter on hover, faded when
+   disabled — like the accent buttons.
+   A span, not <a href>: UXP drew the link in its own blue. */
+.text-action {
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  align-self: center;
+}
+.text-action:hover { color: var(--accent-h); text-decoration: underline; }
+.text-action:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.text-action.disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 4px;
+  background: var(--inset);
+  color: var(--text);
+  border-radius: 3px;
+}
+/* ===== COST BAR + DOCUMENT BAR — 24px info strips ===== */
+.cost-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: 24px;
+  padding: 0 var(--pad);
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--dim);
+}
+.cost-bar > * + * { margin-left: 8px; }
+.cost-since { font-size: 11px; color: var(--dim); }
+.cost-total {
+  margin-left: auto;           /* total sits at the right end of the strip */
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cost-total.over { color: var(--alert); }   /* crossed the spend threshold */
+.cost-reset {
+  font-size: 11px;
+  color: var(--link);
+  cursor: pointer;
+  user-select: none;
+}
+.cost-reset:hover { text-decoration: underline; }
+.doc-info-bar {
+  min-height: 24px;
+  padding: 4px var(--pad);
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+.doc-resolution { font-size: 11px; line-height: 16px; color: var(--dim); }
+.under-res-flag {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--alert);          /* awareness, never a blocker */
+}
+/* Editable rates table (Settings). */
+.cost-rates { display: flex; flex-direction: column; }
+.cost-rates > * + * { margin-top: 10px; }
+.rate-group { display: flex; flex-direction: column; }
+.rate-name {
+  font-size: 11px; color: var(--text); font-weight: 600;
+  margin-bottom: 4px;
+}
+.rate-cells { display: flex; flex-wrap: wrap; }
+.rate-cell { display: flex; flex-direction: column; margin: 0 8px 6px 0; }
+.rate-cap {
+  font-size: 10px; color: var(--dim);
+  margin-bottom: 2px;
+}
+.rate-input {
+  width: 62px; height: 24px; min-height: 24px;
+  font-size: 12px;
+}
+/* ===== MAIN ACTION BUTTON (Make gray) ===== */
+.btn-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 32px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accentfg);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-main:hover:not(.disabled) { background: var(--accent-h); }
+.btn-main.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.btn-main:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.btn-main.btn-solid {
+  background: var(--accent);
+  border: 0;
+  color: var(--accentfg);
+  font-weight: 600;
+}
+.btn-main.btn-solid:hover { background: var(--accent-h); }
+.btn-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.text-link {
+  font-size: 12px;
+  color: var(--link);
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.text-link:hover { text-decoration: underline; }
+.btn-small { height: 28px; padding: 0 10px; font-size: 12px; margin: 0 6px 4px 0; }
+
+/* Header: product name + spacer before the view buttons. */
+.app-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.topbar-fill { flex: 1 1 auto; }
+#ps-home-btn.active, #ps-home-btn:hover { color: var(--text); }
+
+    </style>
+  </head>
+  <body>
+    <!-- =============== HEADER — logo, name =============== -->
+    <header class="topbar">
+      <img class="brand" src="icons/logo.png" alt="KBImage Print Swap" title="KBImage Print Swap" />
+      <div class="app-name">KBImage Print Swap</div>
+    </header>
+    <!-- Navigation: data-view="printswap" / "settings" switch the view (showViewByClass); the active side is selected. -->
+    <nav class="view-tabs">
+      <div id="pills-view" class="pills">
+        <div id="tab-printswap" class="pill" role="button" tabindex="0" data-view="printswap">Print Swap</div>
+        <div id="tab-settings"  class="pill" role="button" tabindex="0" data-view="settings">Settings</div>
+      </div>
+    </nav>
+
+    <!-- =============== SESSION COST BAR =============== -->
+    <!-- Real USD spent this session (Fal calls). Turns red past the spend warning. -->
+    <div id="cost-bar" class="cost-bar">
+      <span id="session-reset" class="cost-reset" role="button" tabindex="0" data-action="reset-session" title="Reset session total">Reset</span>
+      <span id="session-since" class="cost-since">since —</span>
+      <span id="session-total" class="cost-total">$0.00</span>
+    </div>
+
+    <!-- =============== DOCUMENT INFO BAR =============== -->
+    <!-- The active document's size; a red note when the active layer is below it
+         (information only; hidden while the Print Swap panel is showing). -->
+    <div id="doc-info-bar" class="doc-info-bar">
+      <span id="doc-resolution" class="doc-resolution">Document: —</span>
+      <div id="under-res-flag" class="under-res-flag hidden"></div>
+    </div>
+
+    <!-- PRINT SWAP — nine collapsible steps; one open at a time. Hints and errors go
+         to the single status line; under each main button only model · cost. -->
+    <section id="view-printswap" class="view hidden">
+      <div id="ps-status" class="status muted ps-status-top"></div>
+
+      <!-- Hand-edit sync: folds a hand-painted mask edit (MODEL / BG LIGHTEN, GREY exact,
+           a part's shape layer, PIPING / BUTTON) back into its KBPS channel, on demand. -->
+      <div class="ps-save-hand-edits-row">
+        <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-save-hand-edits">Save my mask edits</div>
+      </div>
+
+      <!-- The one recall bar (Accept / Re-run / Discard); app.js moves it under the button of the step that ran. -->
+      <div id="ps-recall-bar" class="recall-bar hidden">
+        <span class="recall-label">Preview ready.</span>
+        <div class="recall-actions">
+          <div class="btn-primary"             role="button" tabindex="0" data-action="recall-accept">Accept</div>
+          <div class="btn-secondary recall-rerun" role="button" tabindex="0" data-action="recall-rerun">Re-run</div>
+          <div class="btn-secondary recall-discard" role="button" tabindex="0" data-action="recall-discard">Discard</div>
+        </div>
+      </div>
+
+      <!-- Start over (all steps) and the confirm box that Start over and Redo share. -->
+      <div id="ps-reset-home" class="ps-reset-home">
+        <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-start-over">Start over</div>
+        <div id="ps-reset-confirm" class="ps-settings ps-reset-confirm hidden">
+          <div id="ps-reset-confirm-text" class="ps-confirm-text ps-lines"></div>
+          <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-reset-details"><span id="ps-reset-details-arrow">▸</span> Show details</span>
+          <div id="ps-reset-details" class="ps-cost hidden"></div>
+          <div class="btn-row">
+            <div id="ps-reset-go" class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-reset-go">Delete and start over</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-reset-cancel">Cancel</div>
+          </div>
+        </div>
+      </div>
+      <div class="ps-step" id="ps-step-0">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="0"><span class="ps-step-num">0</span><span class="ps-step-name">Upscale (optional)</span><span id="ps-step-state-0" class="ps-step-state">ready</span></div>
+        <div id="ps-step-body-0" class="ps-step-body hidden">
+          <div id="ps-up-fresh">
+            <div id="ps-up-size" class="ps-up-size">Document: —</div>
+            <div id="ps-up-note" class="ps-cost"></div>
+            <div id="ps-up-skip" class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-up-skip">Skip</div>
+            <div class="ps-main">
+              <div id="ps-up-btn" class="btn-primary" role="button" tabindex="0" data-action="ps-upscale">Upscale</div>
+              <div id="ps-up-cost" class="ps-cost">Topaz · $0.08</div>
+            </div>
+          </div>
+          <div id="ps-up-kept" class="hidden">
+            <div id="ps-up-kept-line" class="ps-up-size">UPSCALE kept.</div>
+            <div class="btn-secondary" role="button" tabindex="0" data-action="ps-up-keep">Keep and continue</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-up-again">Upscale again</div>
+            <span class="text-action" role="button" tabindex="0" data-action="ps-up-remove">Remove upscale</span>
+          </div>
+          <div id="ps-recall-anchor-0" class="ps-recall-anchor"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-1">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="1"><span class="ps-step-num">1</span><span class="ps-step-name">Background</span><span id="ps-step-redo-1" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="1">Redo</span><span id="ps-step-state-1" class="ps-step-state">ready</span></div>
+        <div id="ps-step-body-1" class="ps-step-body hidden">
+          <div id="pills-ps-bg-mode" class="pills" data-group="ps-bg-mode">
+            <div class="pill selected" role="button" tabindex="0" data-value="white">White</div>
+            <div class="pill"          role="button" tabindex="0" data-value="lighten">Lighten</div>
+          </div>
+          <label class="ps-check"><input id="ps-hair-on" type="checkbox" /> Hair</label>
+          <label id="ps-bg-toggle-row" class="ps-check hidden"><input id="ps-bg-on" type="checkbox" checked /> Lighten background</label>
+          <div class="ps-edges">
+            <span class="field-label">Edges</span>
+            <div class="field">
+              <span class="field-label">Edge softness: <span id="ps-edge-soft-person-val">2 px</span></span>
+              <input id="ps-edge-soft-person" class="ps-range" type="range" min="0" max="10" step="0.5" value="2" />
+            </div>
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-apply" data-target="person">Apply</div>
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-refine" data-target="person">Refine in Photoshop</div>
+            </div>
+          </div>
+          <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-set-1"><span id="ps-set-1-arrow">▸</span> Adjust</span>
+          <div id="ps-set-1" class="ps-settings hidden">
+            <div id="ps-bg-opacity-field" class="field hidden">
+              <span class="field-label">Lighten opacity (%)</span>
+              <div class="key-row">
+                <input id="ps-bg-opacity" class="input" type="text" value="50" autocomplete="off" spellcheck="false" />
+                <div class="btn-ghost" role="button" tabindex="0" data-action="ps-bg-opacity">Apply</div>
+              </div>
+            </div>
+          </div>
+          <div class="ps-main">
+            <div id="ps-white-btn" class="btn-primary" role="button" tabindex="0" data-action="ps-white">Background</div>
+            <div id="ps-white-cost" class="ps-cost">Photoshop · free</div>
+          </div>
+          <div id="ps-recall-anchor-1" class="ps-recall-anchor"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-2">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="2"><span class="ps-step-num">2</span><span class="ps-step-name">Garment</span><span id="ps-step-redo-2" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="2">Redo</span><span id="ps-step-state-2" class="ps-step-state">ready</span></div>
+        <div id="ps-garment-note" class="ps-cost ps-garment-note hidden">Your selection isn't saved to the garment. Use + Add, - Remove or Use selection as garment.</div>
+        <div id="ps-gtype-missing" class="ps-cost ps-gtype-missing hidden">This file has no garment type saved — pick it again (nothing is deleted).</div>
+        <div id="ps-step-body-2" class="ps-step-body hidden">
+          <div class="field">
+            <span class="field-label">Garment type</span>
+            <div class="dropdown" id="dd-psgtype2">
+              <div class="dd-trigger" role="button" tabindex="0" data-dd="psgtype2" aria-haspopup="listbox" aria-label="Garment type">
+                <span class="dd-value" id="dd-psgtype2-value">Pick a garment type…</span>
+                <span class="dd-caret">▾</span>
+              </div>
+              <div class="dd-menu hidden" id="dd-psgtype2-menu" role="listbox"></div>
+            </div>
+          </div>
+          <!-- Other: build a type for a style not in A–H. -->
+          <div id="ps-other" class="ps-settings hidden">
+            <div class="ps-cost">Pick this garment's trims and parts. Used for this document only until you save it as a type.</div>
+            <div class="ps-other-head">Trims</div>
+            <div id="ps-other-trims" class="ps-checklist ps-other-list"></div>
+            <div class="ps-other-head">Parts</div>
+            <div id="ps-other-parts" class="ps-checklist ps-other-list ps-other-parts"></div>
+            <div class="key-row">
+              <input id="ps-other-add" class="input" type="text" value="" placeholder="Add part, e.g. LEFT POCKET FLAP" autocomplete="off" spellcheck="false" />
+              <div class="btn-ghost" role="button" tabindex="0" data-action="ps-other-add-part">Add part</div>
+            </div>
+            <div id="ps-other-hint" class="ps-cost"></div>
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-other-save-ask">Save as type</div>
+            </div>
+            <div id="ps-other-save-row" class="key-row hidden">
+              <input id="ps-other-name" class="input" type="text" value="" placeholder="Short name, e.g. Sleep shirt" autocomplete="off" spellcheck="false" />
+              <div class="btn-ghost" role="button" tabindex="0" data-action="ps-other-save">Save</div>
+              <div class="btn-ghost" role="button" tabindex="0" data-action="ps-other-save-cancel">Cancel</div>
+            </div>
+          </div>
+          <div id="ps-gtype-confirm" class="ps-settings hidden">
+            <div id="ps-gtype-confirm-text" class="ps-confirm-text"></div>
+            <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-gtype-details"><span id="ps-gtype-details-arrow">▸</span> Show details</span>
+            <div id="ps-gtype-details" class="ps-cost hidden"></div>
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-gtype-confirm">Change type</div>
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-gtype-cancel">Keep current type</div>
+            </div>
+          </div>
+          <div class="btn-row">
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-garment" data-mode="add">+ Add</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-garment" data-mode="subtract">- Remove</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-garment" data-mode="replace">Use selection as garment</div>
+          </div>
+          <div class="ps-edges">
+            <span class="field-label">Edges</span>
+            <div class="field">
+              <span class="field-label">Edge softness: <span id="ps-edge-soft-garment-val">3 px</span></span>
+              <input id="ps-edge-soft-garment" class="ps-range" type="range" min="0" max="10" step="0.5" value="3" />
+            </div>
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-apply" data-target="garment">Apply</div>
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-refine" data-target="garment">Refine in Photoshop</div>
+            </div>
+          </div>
+          <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-set-2"><span id="ps-set-2-arrow">▸</span> Adjust</span>
+          <div id="ps-set-2" class="ps-settings hidden">
+            <div class="field">
+              <span class="field-label">Grow into old-garment fringe (px, not skin or hair)</span>
+              <input id="ps-garment-grow" class="input" type="text" value="4" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <div class="ps-main">
+            <div id="ps-find-btn" class="btn-primary disabled" role="button" tabindex="0" data-action="ps-find-garment">Find garment</div>
+            <div id="ps-find-cost" class="ps-cost">SAM 3.1 · $0.040 (+$0.005 for arms, long sleeves)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-3">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="3"><span class="ps-step-num">3</span><span class="ps-step-name">Remove print</span><span id="ps-step-redo-3" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="3">Redo</span><span id="ps-step-state-3" class="ps-step-state">locked</span></div>
+        <div id="ps-step-body-3" class="ps-step-body hidden">
+          <div class="ps-main">
+            <div id="ps-clean-btn" class="btn-primary" role="button" tabindex="0" data-action="ps-remove-print">Remove old print</div>
+            <div id="ps-clean-cost" class="ps-cost">Nano Banana Pro · $0.13</div>
+          </div>
+          <div id="ps-recall-anchor-3" class="ps-recall-anchor"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-4">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="4"><span class="ps-step-num">4</span><span class="ps-step-name">Trims</span><span id="ps-step-redo-4" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="4">Redo</span><span id="ps-step-state-4" class="ps-step-state">locked</span></div>
+        <div id="ps-step-body-4" class="ps-step-body hidden">
+          <div id="ps-trims-for" class="ps-cost">Pick the garment type in step 2 to see its trims.</div>
+          <div id="ps-trim-block-piping" class="ps-trim-block">
+          <div id="pills-ps-piping-mode" class="pills" data-group="ps-piping-mode">
+            <div class="pill selected" role="button" tabindex="0" data-value="colored">Colored piping</div>
+            <div class="pill"          role="button" tabindex="0" data-value="neutral">Neutral piping</div>
+          </div>
+          <div id="ps-piping-mode-note" class="ps-cost">Picked from the thin lines in CLEAN when you click Find piping.</div>
+          <div id="ps-piping-dir-row" class="ps-piping-dir-row hidden">
+            <span id="ps-piping-dir-note" class="ps-cost">Neutral: light or dark, picked when you click Find piping</span>
+            <div id="pills-ps-piping-dir" class="pills pills-small" data-group="ps-piping-dir">
+              <div class="pill" role="button" tabindex="0" data-value="light">Light</div>
+              <div class="pill" role="button" tabindex="0" data-value="dark">Dark</div>
+            </div>
+          </div>
+          <div class="btn-row">
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="piping" data-mode="add">+ Add</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="piping" data-mode="subtract">- Remove</div>
+          </div>
+          <div class="ps-edges">
+            <span class="field-label">Edges</span>
+            <div class="field">
+              <span class="field-label">Edge softness: <span id="ps-edge-soft-trims-val">2 px</span></span>
+              <input id="ps-edge-soft-trims" class="ps-range" type="range" min="0" max="10" step="0.5" value="2" />
+            </div>
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-apply" data-target="piping">Apply to piping</div>
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-refine" data-target="piping">Refine piping</div>
+            </div>
+          </div>
+          <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-set-4"><span id="ps-set-4-arrow">▸</span> Adjust</span>
+          <div id="ps-set-4" class="ps-settings hidden">
+            <div class="field">
+              <span class="field-label">Tolerance (higher = stricter, thinner): <span id="ps-piping-tol-val">20</span></span>
+              <input id="ps-piping-tol" class="ps-range" type="range" min="1" max="100" step="1" value="20" />
+            </div>
+            <div class="field"><span class="field-label">Edge ring, Neutral piping (px): left out only against the background</span><input id="ps-piping-ring" class="input" type="text" value="" placeholder="auto" autocomplete="off" spellcheck="false" /></div>
+            <div class="field"><span class="field-label">Min line length, Neutral piping (px; collar 40% of it)</span><input id="ps-piping-minlen" class="input" type="text" value="" placeholder="auto" autocomplete="off" spellcheck="false" /></div>
+            <span class="text-action" role="button" tabindex="0" data-action="ps-save-piping-case">Save piping test case</span>
+            <div class="field">
+              <span class="field-label">Edge margin, piping (px)</span>
+              <div class="key-row">
+                <input id="ps-piping-margin" class="input" type="text" value="6" autocomplete="off" spellcheck="false" />
+                <div class="btn-ghost" role="button" tabindex="0" data-action="ps-piping-remargin">Re-apply</div>
+              </div>
+            </div>
+          </div>
+          <div class="ps-main">
+            <div class="btn-primary" role="button" tabindex="0" data-action="ps-find-piping">Find piping</div>
+            <div class="ps-cost">Photoshop · free</div>
+          </div>
+          <div id="ps-recall-anchor-4p" class="ps-recall-anchor"></div>
+          </div>
+          <div id="ps-trim-block-buttons" class="ps-trim-block">
+          <div class="field-label">Button fit</div>
+          <div id="pills-ps-button-fit" class="pills" data-group="ps-button-fit">
+            <div class="pill selected" role="button" tabindex="0" data-value="tight">Tight</div>
+            <div class="pill"          role="button" tabindex="0" data-value="normal">Normal</div>
+            <div class="pill"          role="button" tabindex="0" data-value="loose">Loose</div>
+          </div>
+          <div class="btn-row">
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="buttons" data-mode="add">+ Add</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="buttons" data-mode="subtract">- Remove</div>
+          </div>
+          <div class="ps-edges">
+            <span class="field-label">Edges</span>
+            <div class="field">
+              <span class="field-label">Edge softness: <span id="ps-edge-soft-buttons-val">1.5 px</span></span>
+              <input id="ps-edge-soft-buttons" class="ps-range" type="range" min="0" max="10" step="0.5" value="1.5" />
+            </div>
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-apply" data-target="buttons">Apply to buttons</div>
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-refine" data-target="buttons">Refine buttons</div>
+            </div>
+          </div>
+          <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-set-4b"><span id="ps-set-4b-arrow">▸</span> Adjust</span>
+          <div id="ps-set-4b" class="ps-settings hidden">
+            <div class="field">
+              <span class="field-label">Shrink button mask (0–3 px)</span>
+              <div class="key-row">
+                <input id="ps-trim-shrink" class="input" type="text" value="1" autocomplete="off" spellcheck="false" />
+                <div class="btn-ghost" role="button" tabindex="0" data-action="ps-trim-reshrink">Re-apply</div>
+              </div>
+            </div>
+          </div>
+          <div class="ps-main">
+            <div class="btn-primary" role="button" tabindex="0" data-action="ps-find-buttons">Find buttons</div>
+            <div id="ps-buttons-cost" class="ps-cost">SAM 3.1 · $0.005</div>
+          </div>
+          <div id="ps-recall-anchor-4b" class="ps-recall-anchor"></div>
+          </div>
+          <div id="ps-trim-blocks-sam"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-5">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="5"><span class="ps-step-num">5</span><span class="ps-step-name">Gray</span><span id="ps-step-redo-5" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="5">Redo</span><span id="ps-step-state-5" class="ps-step-state">locked</span></div>
+        <div id="ps-step-body-5" class="ps-step-body hidden">
+          <div class="field-label">Target gray</div>
+          <div class="ps-gray-row">
+            <div id="ps-gray-swatch" class="ps-gray-swatch"></div>
+            <input id="ps-target-gray" class="input" type="text" value="#BABABA" placeholder="#BABABA" autocomplete="off" spellcheck="false" />
+          </div>
+          <div id="pills-ps-gray-chip" class="pills pills-small ps-gray-chips" data-group="ps-gray-chip">
+            <div class="pill" role="button" tabindex="0" data-value="light">Light</div>
+            <div class="pill selected" role="button" tabindex="0" data-value="mid">Mid</div>
+            <div class="pill" role="button" tabindex="0" data-value="dark">Dark</div>
+            <div class="pill" role="button" tabindex="0" data-value="custom">Custom…</div>
+          </div>
+          <div class="ps-main">
+            <div id="ps-gray-btn" class="btn-primary disabled" role="button" tabindex="0" data-action="ps-make-gray">Make gray</div>
+            <div id="ps-gray-cost" class="ps-cost">Photoshop · free</div>
+          </div>
+          <div id="ps-recall-anchor-5" class="ps-recall-anchor"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-6">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="6"><span class="ps-step-num">6</span><span class="ps-step-name">Parts</span><span id="ps-step-redo-6" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="6">Redo</span><span id="ps-step-state-6" class="ps-step-state">locked</span></div>
+        <div id="ps-step-body-6" class="ps-step-body hidden">
+          <div id="ps-gtype6" class="ps-cost">Pick the garment type in step 2 first.</div>
+          <div id="ps-gtype-trims" class="ps-cost"></div>
+          <div id="ps-part-checklist" class="ps-checklist hidden"></div>
+          <div id="pills-ps-parts" class="pills" data-group="ps-parts"></div>
+          <div id="ps-parts-note" class="ps-cost"></div>
+          <div id="ps-parts-tools" class="hidden">
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-part" data-mode="add">+ Add</div>
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-part" data-mode="subtract">- Remove</div>
+            </div>
+            <div class="btn-row">
+              <span id="ps-shapes-link" class="text-link" role="button" tabindex="0" data-action="ps-toggle-shapes">Show shapes</span>
+            </div>
+          </div>
+          <div class="ps-edges">
+            <span class="field-label">Edges</span>
+            <div class="field">
+              <span class="field-label">Edge softness: <span id="ps-edge-soft-parts-val">3 px</span></span>
+              <input id="ps-edge-soft-parts" class="ps-range" type="range" min="0" max="10" step="0.5" value="3" />
+            </div>
+            <div class="btn-row">
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-apply" data-target="part">Apply to part</div>
+              <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edge-refine" data-target="part">Refine in Photoshop</div>
+            </div>
+          </div>
+          <div class="ps-main">
+            <div id="ps-parts-btn" class="btn-primary disabled" role="button" tabindex="0" data-action="ps-find-parts">Find parts</div>
+            <div id="ps-parts-arm" class="ps-cost ps-parts-arm hidden"></div>
+            <div id="ps-parts-cost" class="ps-cost">SAM 3.1 · $0.07</div>
+          </div>
+          <div id="ps-recall-anchor-6" class="ps-recall-anchor"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-7">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="7"><span class="ps-step-num">7</span><span class="ps-step-name">Print and Color</span><span id="ps-step-redo-7" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="7">Redo</span><span id="ps-step-state-7" class="ps-step-state">locked</span></div>
+        <div id="ps-step-body-7" class="ps-step-body hidden">
+          <div class="btn-row">
+            <div id="ps-print-btn" class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-choose-print">Swap print</div>
+            <span class="ps-cost">PNG, JPG, TIF</span>
+            <span id="ps-print-name" class="ps-cost">No print chosen</span>
+          </div>
+          <div id="ps-print-thumb" class="ps-print-thumb hidden">
+            <img id="ps-print-thumb-img" class="hidden" alt="Chosen print" />
+            <div id="ps-print-thumb-info" class="ps-cost"></div>
+          </div>
+          <label class="ps-check"><input id="ps-print-continuous" type="checkbox" checked /> Continuous (one fabric across all parts)</label>
+          <div class="ps-group-head">SCALE</div>
+          <div class="key-row">
+            <span class="ps-row-label">Whole garment</span>
+            <input id="ps-print-scale" class="input" type="text" value="100" autocomplete="off" spellcheck="false" />
+          </div>
+          <div id="ps-print-suggest" class="ps-cost hidden"></div>
+          <div class="ps-group-head">ROTATE</div>
+          <div class="field-label">Whole garment · <span id="ps-print-rot" class="ps-angle">Angle: 0°</span></div>
+          <div class="btn-row">
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-print-rotate" data-deg="-15" title="Rotate counterclockwise 15°">↺ 15°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-print-rotate" data-deg="-1" title="Rotate counterclockwise 1°">↺ 1°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-print-rotate" data-deg="1" title="Rotate clockwise 1°">↻ 1°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-print-rotate" data-deg="15" title="Rotate clockwise 15°">↻ 15°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-print-rotate" data-set="0" title="Back to 0°">0°</div>
+          </div>
+          <div class="key-row">
+            <input id="ps-print-rot-exact" class="input" type="text" value="" placeholder="Exact angle, e.g. -7.5 (Enter)" autocomplete="off" spellcheck="false" />
+          </div>
+          <span class="text-action" role="button" tabindex="0" data-action="ps-print-reset">Reset scale and rotation</span>
+          <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-set-7p"><span id="ps-set-7p-arrow">▸</span> Adjust one part</span>
+          <div id="ps-set-7p" class="ps-settings hidden">
+          <div class="key-row">
+            <span class="field-label ps-part-label">Part:</span>
+            <div class="dropdown ps-part-dd" id="dd-pspart">
+              <div class="dd-trigger" role="button" tabindex="0" data-dd="pspart" aria-haspopup="listbox" aria-label="Part">
+                <span class="dd-value" id="ps-print-part">none (pick a part)</span>
+                <span class="dd-caret">▾</span>
+              </div>
+              <div class="dd-menu hidden" id="dd-pspart-menu" role="listbox"></div>
+            </div>
+          </div>
+          <div class="key-row">
+            <span class="ps-row-label">This part</span>
+            <input id="ps-part-scale" class="input" type="text" value="" placeholder="empty = whole garment" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="field-label">This part · <span id="ps-part-angle" class="ps-angle">Angle: 0°</span></div>
+          <div class="btn-row">
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-part-adjust" data-deg="-15" title="Rotate counterclockwise 15°">↺ 15°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-part-adjust" data-deg="-1" title="Rotate counterclockwise 1°">↺ 1°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-part-adjust" data-deg="1" title="Rotate clockwise 1°">↻ 1°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-part-adjust" data-deg="15" title="Rotate clockwise 15°">↻ 15°</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-part-adjust" data-reset="1" title="Set this part to 0°">0°</div>
+          </div>
+          <div class="key-row">
+            <input id="ps-part-rot-exact" class="input" type="text" value="" placeholder="Exact angle (Enter), empty = whole garment" autocomplete="off" spellcheck="false" />
+          </div>
+          </div>
+          <div id="ps-print-dirty" class="ps-dirty hidden">Changes not applied.</div>
+          <div class="ps-main">
+            <div id="ps-apply-print" class="btn-primary" role="button" tabindex="0" data-action="ps-apply-print">Apply print</div>
+            <div class="ps-cost">Photoshop · free</div>
+          </div>
+          <div id="ps-backup-note" class="ps-backup-note hidden"></div>
+          <div id="ps-recall-anchor-7" class="ps-recall-anchor"></div>
+          <div class="ps-divider"></div>
+          <div class="field-label">Trim colors</div>
+          <div id="ps-trim-colors" class="ps-trim-colors"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-8">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="8"><span class="ps-step-num">8</span><span class="ps-step-name">Shading</span><span id="ps-step-redo-8" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="8">Redo</span><span id="ps-step-state-8" class="ps-step-state">locked</span></div>
+        <div id="ps-step-body-8" class="ps-step-body hidden">
+          <div class="ps-tone-row">
+            <span class="field-label ps-tone-label">Garment</span>
+            <div id="pills-ps-tone-src" class="pills pills-small" data-group="ps-tone-src">
+              <div class="pill selected" role="button" tabindex="0" data-value="light">Light</div>
+              <div class="pill" role="button" tabindex="0" data-value="dark">Dark</div>
+            </div>
+          </div>
+          <div class="ps-tone-row">
+            <span class="field-label ps-tone-label">Print</span>
+            <div id="pills-ps-tone-print" class="pills pills-small" data-group="ps-tone-print">
+              <div class="pill selected" role="button" tabindex="0" data-value="light">Light</div>
+              <div class="pill" role="button" tabindex="0" data-value="dark">Dark</div>
+            </div>
+          </div>
+          <div id="ps-tone-note" class="ps-cost">Auto: measured from the garment and the print when step 8 opens</div>
+          <div class="field"><span class="field-label">Shading strength % (0 to 200)</span><input id="ps-sh-strength" class="input" type="text" value="100" autocomplete="off" spellcheck="false" /></div>
+          <div class="field"><span class="field-label">Fold contrast</span><input id="ps-sh-fold" class="input" type="text" value="1.0" autocomplete="off" spellcheck="false" /></div>
+          <div class="field"><span class="field-label">Fold smoothing (px)</span><input id="ps-sh-smooth" class="input" type="text" value="" placeholder="auto" autocomplete="off" spellcheck="false" /></div>
+          <div class="field"><span class="field-label">Fold light %</span><input id="ps-sh-light" class="input" type="text" value="50" autocomplete="off" spellcheck="false" /></div>
+          <div class="field"><span class="field-label">Burn %</span><input id="ps-sh-burn" class="input" type="text" value="40" autocomplete="off" spellcheck="false" /></div>
+          <div class="field"><span class="field-label">Highlights %</span><input id="ps-sh-hi" class="input" type="text" value="0" autocomplete="off" spellcheck="false" /></div>
+          <div class="ps-tone-row">
+            <span class="field-label ps-tone-label">Warm shadows</span>
+            <div id="pills-ps-sh-warm" class="pills pills-small" data-group="ps-sh-warm">
+              <div class="pill selected" role="button" tabindex="0" data-value="on">On</div>
+              <div class="pill" role="button" tabindex="0" data-value="off">Off</div>
+            </div>
+          </div>
+          <span class="ps-toggle" role="button" tabindex="0" data-action="ps-toggle-settings" data-target="ps-set-8"><span id="ps-set-8-arrow">▸</span> Adjust</span>
+          <div id="ps-set-8" class="ps-settings hidden">
+            <div class="field"><span class="field-label">Light 1 contrast</span><input id="ps-sh-light-c" class="input" type="text" value="28" autocomplete="off" spellcheck="false" /></div>
+            <div class="field"><span class="field-label">Levels 2 input (black / gamma / white)</span><input id="ps-sh-l2-in" class="input" type="text" value="39 / 0.58 / 255" autocomplete="off" spellcheck="false" /></div>
+            <div class="field"><span class="field-label">Levels 2 output (black / white)</span><input id="ps-sh-l2-out" class="input" type="text" value="0 / 199" autocomplete="off" spellcheck="false" /></div>
+            <div class="field"><span class="field-label">Fold edge amount %</span><input id="ps-sh-edge-amt" class="input" type="text" value="15" autocomplete="off" spellcheck="false" /></div>
+            <div class="field"><span class="field-label">Deep fold amount %</span><input id="ps-sh-deep-amt" class="input" type="text" value="10" autocomplete="off" spellcheck="false" /></div>
+            <div class="field"><span class="field-label">Mask feather (px)</span><input id="ps-sh-feather" class="input" type="text" value="" placeholder="auto" autocomplete="off" spellcheck="false" /></div>
+          </div>
+          <div class="ps-main">
+            <div class="btn-primary" role="button" tabindex="0" data-action="ps-build-shade">Build shading</div>
+            <div class="ps-cost">Photoshop · free</div>
+          </div>
+          <div id="ps-recall-anchor-8" class="ps-recall-anchor"></div>
+        </div>
+      </div>
+
+      <div class="ps-step" id="ps-step-9">
+        <div class="ps-step-head" role="button" tabindex="0" data-action="ps-step-toggle" data-step="9"><span class="ps-step-num">9</span><span class="ps-step-name">Finish</span><span id="ps-step-redo-9" class="text-action ps-redo hidden" role="button" tabindex="0" data-action="ps-step-redo" data-step="9">Redo</span><span id="ps-step-state-9" class="ps-step-state">locked</span></div>
+        <div id="ps-step-body-9" class="ps-step-body hidden">
+          <div class="ps-main">
+            <div class="btn-primary" role="button" tabindex="0" data-action="ps-finish">Finish</div>
+            <div class="ps-cost">Photoshop · free</div>
+          </div>
+          <div id="ps-recall-anchor-9" class="ps-recall-anchor"></div>
+        </div>
+      </div>
+
+      <!-- Render progress bar for Fal calls; app.js moves it under the button that started the run. -->
+      <div id="fal-prog" class="fal-prog hidden">
+        <div class="fal-prog-track"><div id="fal-prog-fill" class="fal-prog-fill"></div></div>
+        <div id="fal-prog-label" class="fal-prog-label"></div>
+        <div id="fal-prog-log" class="fal-prog-log hidden"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS — the Fal key, Help, spend warning, Remove print edge bleed, rates. -->
+    <section id="view-settings" class="view">
+      <div id="settings-start-line" class="hint hidden">Add the Fal key to start</div>
+      <div class="field">
+        <span class="field-label">Fal API key</span>
+        <div id="fal-key-locked" class="hidden">
+          <div class="key-row"><span class="hint-small">Key saved ✓, locked by admin</span></div>
+        </div>
+        <div id="fal-key-editor">
+          <div class="key-row">
+            <input id="fal-api-key" class="input" type="password" placeholder="fal key" autocomplete="off" spellcheck="false" />
+            <div id="show-fal-key" class="btn-ghost" role="button" tabindex="0" data-action="show-fal-key">Show</div>
+          </div>
+          <div id="admin-pin-new" class="key-row hidden">
+            <input id="admin-pin-set" class="input" type="password" placeholder="admin PIN (locks the key)" autocomplete="off" spellcheck="false" />
+          </div>
+          <a id="get-fal-key-link" href="#" class="link" data-action="open-fal-key-page">How to get your Fal key</a>
+          <div class="hint-small">One key for everything: Nano Banana Pro (Remove print) and SAM 3.1 (garment, trims, parts) both run through Fal.</div>
+        </div>
+      </div>
+      <div class="row">
+        <div id="save-fal-key" class="btn-primary"   role="button" tabindex="0" data-action="save-fal-key">Save</div>
+        <div id="test-fal-key" class="btn-secondary" role="button" tabindex="0" data-action="test-fal-key">Test Connection</div>
+        <div class="conn">
+          <span id="fal-conn-dot" class="dot dot-unknown"></span>
+          <span id="fal-conn-label" class="conn-label">unknown</span>
+        </div>
+      </div>
+      <div id="admin-unlocked-line" class="hint-small hidden">Unlocked by admin until the panel reloads.</div>
+      <span id="admin-link" class="text-link hidden" role="button" tabindex="0" data-action="admin-open">Admin</span>
+      <div id="admin-box" class="hidden">
+        <div class="key-row">
+          <input id="admin-pin" class="input" type="password" placeholder="admin PIN" autocomplete="off" spellcheck="false" />
+          <div class="btn-ghost" role="button" tabindex="0" data-action="admin-unlock">Unlock</div>
+        </div>
+        <span class="text-link" role="button" tabindex="0" data-action="admin-reset-key">Forgot PIN: Reset key</span>
+        <div id="admin-note" class="hint-small"></div>
+      </div>
+
+      <!-- Help: opens HELP_URL (src/app.js). Hidden while HELP_URL is empty. -->
+      <a id="help-link" href="#" class="link hidden" data-action="open-help">Help (opens the Print Swap help page in your browser)</a>
+
+      <div class="field">
+        <span class="field-label">Spend warning ($)</span>
+        <div class="key-row">
+          <input id="warn-threshold" class="input" type="text" inputmode="decimal" placeholder="off" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="hint-small">When this session's total crosses this amount, the tally turns red. Blank = off.</div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Edge bleed (px)</span>
+        <div class="key-row">
+          <input id="sel-bleed" class="input" type="text" inputmode="numeric" placeholder="4" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="hint-small">Remove print: the CLEAN layer reaches this many pixels past the garment on each side, inside the canvas (0–64, default 4). The garment mask still sets the visible edge.</div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Per-action rates (USD)</span>
+        <div id="cost-rates" class="cost-rates"></div>
+        <div id="reset-rates" class="btn-ghost" role="button" tabindex="0" data-action="reset-rates">Reset to defaults</div>
+        <div class="hint-small">
+          Fal list prices. Nano Banana Pro: $ per image at each resolution.
+          SAM 3.1: $0.005 per request (fixed). Real dollars, not credits. Saved on this device.
+        </div>
+      </div>
+
+      <p class="hint">
+        The Fal key is stored in UXP <code>secureStorage</code> only and is sent
+        only to Fal (<code>queue.fal.run</code>, and <code>rest.alpha.fal.ai</code>
+        for uploading large images). Results come back from <code>fal.media</code>.
+      </p>
+    </section>
+
+    <!-- Non-module bundled script. All clicks go through one delegated listener
+         on document.body — see src/app.js. -->
+    <script src="src/app.js"></script>
+  </body>
+</html>
