@@ -708,8 +708,9 @@ code {
       <div id="ps-status" class="status muted ps-status-top"></div>
 
       <!-- Hand-edit sync: folds a hand-painted mask edit (MODEL / BG LIGHTEN, GREY exact,
-           a part's shape layer, PIPING / BUTTON) back into its KBPS channel, on demand. -->
-      <div class="ps-save-hand-edits-row">
+           a part's shape layer, PIPING / BUTTON) back into its KBPS channel, on demand.
+           Hidden while PS_HAND_EDIT_SYNC is false (v0.20.8); app.js shows it when it is on. -->
+      <div id="ps-save-hand-edits-row" class="ps-save-hand-edits-row hidden">
         <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-save-hand-edits">Save my mask edits</div>
       </div>
 
@@ -902,6 +903,7 @@ code {
           <div class="btn-row">
             <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="piping" data-mode="add">+ Add</div>
             <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="piping" data-mode="subtract">- Remove</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="piping" data-mode="replace">Use selection as piping</div>
           </div>
           <div class="ps-edges">
             <span class="field-label">Edges</span>
@@ -947,6 +949,7 @@ code {
           <div class="btn-row">
             <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="buttons" data-mode="add">+ Add</div>
             <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="buttons" data-mode="subtract">- Remove</div>
+            <div class="btn-secondary btn-small" role="button" tabindex="0" data-action="ps-edit-trim" data-trim="buttons" data-mode="replace">Use selection as buttons</div>
           </div>
           <div class="ps-edges">
             <span class="field-label">Edges</span>
